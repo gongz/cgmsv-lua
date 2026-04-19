@@ -1,8 +1,6 @@
 ---@class McpModule : ModuleType
 local Module = ModuleBase:createModule('mcp')
 
----@alias ParamType {string:string}
-
 local DEFAULT_CONFIG = {
   token = 'change-me',
   bind = '0.0.0.0',
@@ -231,7 +229,7 @@ end
 
 ---@param method string
 ---@param api string
----@param params ParamType
+---@param params {string:string}
 ---@param body string
 ---@return string
 function Module:onHttpRequest(method, api, params, body)

@@ -10,9 +10,21 @@ end
 local function makeStopOnNegativeChain(blockedResult)
   return function(list, ...)
     for _, fn in ipairs(list) do
-      local res = tonumber(fn(...)) or 0;
+      local res = tonumberEx(fn(...)) or 0;
       if res < 0 then
         return blockedResult or res;
+      end
+    end
+    return 0;
+  end
+end
+
+local function makeStopBoolOrNoneZeroChain(blockedResult)
+  return function(list, ...)
+    for _, fn in ipairs(list) do
+      local res = fn(...) or 0;
+      if res == true or res ~= 0 then
+        return blockedResult;
       end
     end
     return 0;
@@ -107,7 +119,7 @@ local chained = {
 
   -- 事件参数: ProtocolOnRecv(fd, head, data)
   -- 链式规则: 返回值小于 0 时拦截，其他返回值继续执行
-  ProtocolOnRecv = makeStopOnNegativeChain(),
+  ProtocolOnRecv = makeStopBoolOrNoneZeroChain(1),
 
   -- 事件参数: BattleDamageEvent(charIndex, defCharIndex, oriDamage, damage, battleIndex, com1, com2, com3, defCom1, defCom2, defCom3, flg, exFlag)
   -- 链式参数位置: 4，对应参数 damage
@@ -156,18 +168,8 @@ local chained = {
   -- 事件参数: BattleNextEnemyEvent(battleIndex, flg, ret)
   -- 链式参数位置: 3，对应参数 ret
   BattleNextEnemyEvent = makeReduceValueChain(3, acceptTable),
-
-  -- 事件参数: Init(...)
-  -- 链式规则: 按顺序执行所有回调，返回最后一个回调的返回值
-  Init = function(fnList, ...)
-    fnList = table.copy(fnList)
-    local res;
-    for i, v in ipairs(fnList) do
-      res = v(...)
-    end
-    return res
-  end,
 }
+
 -- 事件参数: ItemPickUpEvent(charIndex, itemIndex)
 -- 链式规则: 返回值小于 0 时拦截，其他返回值继续执行
 chained.ItemPickUpEvent = makeStopOnNegativeChain(-1);
@@ -204,17 +206,25 @@ chained.LogoutEvent = makeBroadcastChain(0);
 -- 链式规则: 广播执行，不消费返回值
 chained.LoginEvent = makeBroadcastChain(0);
 
--- 事件参数: ItemOverLapEvent(charIndex, fromItemIndex, targetItemIndex, num)
--- 链式规则: 任一回调返回非 0 时立即返回 1，否则返回 0
-chained.ItemOverLapEvent = function(list, ...)
+-- 事件参数: Init()
+-- 链式规则: 广播执行，不消费返回值
+chained.InitEvent = makeBroadcastChain(0);
+
+-- 事件参数: ScriptCallEvent(npcIndex, playerIndex, text, msg)
+-- 链式规则: 任一回调返回数值类型时立即返回，否则返回nil
+chained.ScriptCallEvent = function(list, ...)
   for _, fn in ipairs(list) do
-    local res = tonumber(fn(...)) or 0;
-    if res ~= 0 then
-      return 1;
+    local res = fn(...);
+    if type(res) =="number" then
+      return res;
     end
   end
-  return 0;
+  return nil;
 end
+
+-- 事件参数: ItemOverLapEvent(charIndex, fromItemIndex, targetItemIndex, num)
+-- 链式规则: 任一回调返回非 0 时立即返回 1，否则返回 0
+chained.ItemOverLapEvent = makeStopBoolOrNoneZeroChain(1);
 
 -- 事件参数: PartyEvent(charIndex, targetCharIndex, type)
 -- 链式规则: 任一回调返回 0 时立即返回 0，否则返回 1
