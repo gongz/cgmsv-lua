@@ -1611,3 +1611,17 @@ function NL.RegRepairItemEvent(Dofile, InitFuncName) end
 ---@param flg number 1为修理成功, 0为修理失败
 ---@return number @1为修理成功, 0为修理失败
 function RepairItemEventCallback(charIndex, skillid, skilllv, itemindex, prob, flg) end
+
+--战斗属性更新事件（更新前）
+---[@group NL.RegBattleStatusReflectionEvent]
+---@param Dofile?  string 要加载的脚本文件名，如果为当前文件，则定义nil即可
+---@param InitFuncName  string 指向的Lua函数的名称，参考[BattleStatusReflectionEventCallback]
+function NL.RegBattleStatusReflectionEvent(Dofile, InitFuncName) end
+
+---战斗属性更新事件（更新前）回调
+---[@group NL.RegBattleStatusReflectionEvent]
+---@param charIndex number
+---@param battleIndex number
+---@return number @返回0即可
+function BattleStatusReflectionEventCallback(battleIndex, charIndex) end
+

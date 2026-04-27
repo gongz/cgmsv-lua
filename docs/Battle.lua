@@ -175,8 +175,9 @@ function Battle.GetNextBattle(battleIndex) end
 ---计算属性伤害比率（10属性=100）
 ---@param ap number[] 进攻方4属性，地、水、火、风
 ---@param dp number[] 防守方4属性，地、水、火、风
+---@param magic number @1=魔法伤害，0=普通伤害
 ---@return any @属性伤害比率
-function Battle.CalcPropScore(ap, dp) end
+function Battle.CalcPropScore(ap, dp, magic) end
 
 ---获取当前动作技能参数
 ---@param charIndex number
@@ -184,7 +185,7 @@ function Battle.CalcPropScore(ap, dp) end
 ---@return number @当前动作技能参数
 function Battle.GetTechOption(charIndex, type) end
 
----获取种族克制关系
+---获取属性克制比率
 ---@param attackerIndex number
 ---@param defenceIndex number
 ---@return number @克制比率
