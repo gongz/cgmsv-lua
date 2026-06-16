@@ -9,6 +9,33 @@ table.forEach(gmList, function(e)
   gmDict[e] = true
 end)
 
+-- 运行时新增的GM(持久化到文件)。hardcoded为内置不可移除集合。
+local GM_FILE = 'gm_extra.txt' -- 每行一个账号CDK
+local hardcoded = {};
+table.forEach(gmList, function(e) hardcoded[e] = true end)
+local persisted = {};
+
+local function saveGmFile()
+  local f = io.open(GM_FILE, 'w')
+  if not f then return end
+  for k in pairs(persisted) do f:write(k .. '\n') end
+  f:close()
+end
+
+local function loadGmFile()
+  local f = io.open(GM_FILE, 'r')
+  if not f then return end
+  for line in f:lines() do
+    local k = line and line:match('^%s*(%S+)%s*$')
+    if k and k:sub(1, 1) ~= '#' then
+      persisted[k] = true
+      gmDict[k] = true
+    end
+  end
+  f:close()
+end
+loadGmFile()
+
 function commands.module(charIndex, args)
   if args[1] == 'reload' then
     reloadModule(args[2]);
@@ -35,6 +62,39 @@ function Admin:isAdmin(charIndex)
     return false
   end
   return true;
+end
+
+---把某账号CDK设为GM(持久化)。
+---@param cdKey string 目标玩家的账号CDK(CONST.CHAR_CDK)
+---@return boolean
+function Admin:addGm(cdKey)
+  if not cdKey or cdKey == '' then
+    return false
+  end
+  gmDict[cdKey] = true
+  persisted[cdKey] = true
+  saveGmFile()
+  return true
+end
+
+---取消某账号CDK的GM(内置gmList无法在运行时永久移除)。
+---@param cdKey string 目标玩家的账号CDK
+---@return boolean
+function Admin:removeGm(cdKey)
+  if not cdKey or cdKey == '' or hardcoded[cdKey] then
+    return false
+  end
+  gmDict[cdKey] = nil
+  persisted[cdKey] = nil
+  saveGmFile()
+  return true
+end
+
+---读取某对象index对应账号的CDK(用于设为GM)。
+---@param charIndex CharIndex
+---@return string
+function Admin:getCdKey(charIndex)
+  return Char.GetData(charIndex, CONST.CHAR_CDK)
 end
 
 function Admin:handleChat(charIndex, msg, color, range, size)
