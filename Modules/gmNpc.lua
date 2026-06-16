@@ -7,12 +7,13 @@ local GmNpc = ModuleBase:createModule(mName)
 --
 --   talk -> "what do you want to do?" (only option: "show all commands")
 --        -> paginated list of every command in `commands`
---        -> input box: type the primitive args -> the command runs on the talker
+--        -> input box: type the primitive args -> the command runs
 --
--- Each command is { label, hint, run(player, args) } where `args` is the list of
--- whitespace-separated tokens the GM typed. Add a new GM action = add one row.
--- The receiver is always whoever is talking to the NPC (except Add/Remove GM,
--- which take a target account CDK as input).
+-- Each command is { label, hint, run(player, args, raw) }:
+--   args = whitespace-separated tokens the GM typed
+--   raw  = the full typed string (use for SQL / messages with spaces)
+-- Add a new command = add one row. Player commands act on the talker; world
+-- commands act on the server/map and take their target as typed args.
 -- =============================================================================
 
 -- ---- configuration ---------------------------------------------------------
@@ -21,7 +22,7 @@ local NPC_NAME  = 'GM助手'
 local NPC_IMAGE = 103010
 local NPC_POS   = { x = 242, y = 88, mapType = 0, map = 1000, direction = 6 }
 
-local PAGE_SIZE = 8 -- select window shows at most 8 rows per page
+local PAGE_SIZE = 8
 
 -- ---- helpers ---------------------------------------------------------------
 
@@ -33,17 +34,20 @@ local function tokenize(s)
   return t
 end
 
+local function rest(a, from) return table.concat(a, ' ', from) end -- join tokens from index `from`
+
 local function pageButtons(page, total)
   if total <= 1 then return CONST.BUTTON_关闭 end
-  if page == 1 then return CONST.BUTTON_下取消 end     -- next + cancel
-  if page == total then return CONST.BUTTON_上取消 end -- prev + cancel
-  return CONST.BUTTON_上下取消                          -- prev + next + cancel
+  if page == 1 then return CONST.BUTTON_下取消 end
+  if page == total then return CONST.BUTTON_上取消 end
+  return CONST.BUTTON_上下取消
 end
 
--- ---- command registry (the "API list") -------------------------------------
--- Each row maps a menu entry to a direct API call. `a` = typed arg tokens.
+-- ---- command registry ------------------------------------------------------
 
 local commands = {
+
+  -- ===== player actions (act on the talker) =====
   { label = '给予道具 GiveItem', hint = 'itemID [数量]', run = function(p, a)
     local id = tonumber(a[1]); if not id then return msg(p, '需要 itemID') end
     local nm = Item.GetNameFromNumber(id)
@@ -76,7 +80,7 @@ local commands = {
     local s, l = tonumber(a[1]), tonumber(a[2]); if not (s and l) then return msg(p, '需要 slot 等级') end
     Char.SetSkillLevel(p, s, l, true); msg(p, string.format('技能槽%d -> Lv%d', s, l))
   end },
-  { label = '传送 Warp', hint = 'mapType floor x y', run = function(p, a)
+  { label = '传送自己 Warp', hint = 'mapType floor x y', run = function(p, a)
     local mt, fl, x, y = tonumber(a[1]), tonumber(a[2]), tonumber(a[3]), tonumber(a[4])
     if not (mt and fl and x and y) then return msg(p, '需要 mapType floor x y') end
     Char.Warp(p, mt, fl, x, y); msg(p, string.format('已传送 %d/%d (%d,%d)', mt, fl, x, y))
@@ -89,6 +93,8 @@ local commands = {
     local d = tonumber(a[1]); if not d then return msg(p, '需要 dataIndex') end
     msg(p, string.format('GetData[%d]=%s', d, tostring(Char.GetData(p, d))))
   end },
+
+  -- ===== GM administration =====
   { label = '设为GM AddGM', hint = '账号CDK', run = function(p, a)
     local k = a[1]; local ad = getModule('admin')
     if not k then return msg(p, '需要账号CDK') end
@@ -103,9 +109,86 @@ local commands = {
     if not a[1] then return msg(p, '需要模块名') end
     reloadModule(a[1]); msg(p, '已重载 ' .. a[1])
   end },
+
+  -- ===== world / server (not tied to the talker) =====
+  { label = '全服公告 AnnounceAll', hint = '公告内容', run = function(p, a, raw)
+    local text = rest(a, 1); if text == '' then return msg(p, '需要公告内容') end
+    NLG.SystemMessage(-1, text); msg(p, '已全服公告')
+  end },
+  { label = '地图公告 AnnounceMap', hint = 'map floor 内容', run = function(p, a)
+    local m, f = tonumber(a[1]), tonumber(a[2]); local text = rest(a, 3)
+    if not (m and f) or text == '' then return msg(p, '需要 map floor 内容') end
+    NLG.SystemMessageToMap(m, f, text); msg(p, '已对地图公告')
+  end },
+  { label = '在线人数 OnlineCount', hint = '(无参数)', run = function(p)
+    msg(p, '在线人数: ' .. tostring(NLG.GetOnLinePlayer()))
+  end },
+  { label = '地图人数 MapPlayerCount', hint = 'map floor', run = function(p, a)
+    local m, f = tonumber(a[1]), tonumber(a[2]); if not (m and f) then return msg(p, '需要 map floor') end
+    msg(p, '地图人数: ' .. tostring(NLG.GetMapPlayerNum(m, f)))
+  end },
+  { label = '查找账号 FindUser', hint = '账号CDK', run = function(p, a)
+    if not a[1] then return msg(p, '需要账号CDK') end
+    msg(p, 'FindUser -> ' .. tostring(NLG.FindUser(a[1])))
+  end },
+  { label = '道具名查询 ItemName', hint = 'itemID', run = function(p, a)
+    local id = tonumber(a[1]); if not id then return msg(p, '需要 itemID') end
+    msg(p, id .. ' = ' .. tostring(Item.GetNameFromNumber(id)))
+  end },
+  { label = '地面掉金 DropGold', hint = 'map floor x y 金额', run = function(p, a)
+    local m, f, x, y, g = tonumber(a[1]), tonumber(a[2]), tonumber(a[3]), tonumber(a[4]), tonumber(a[5])
+    if not (m and f and x and y and g) then return msg(p, '需要 map floor x y 金额') end
+    Obj.AddGold(m, f, x, y, g); msg(p, '已在地面放置金币')
+  end },
+  { label = '创建传送点 AddWarp', hint = 'map floor x y toMap toFloor toX toY', run = function(p, a)
+    local v = {}
+    for i = 1, 8 do v[i] = tonumber(a[i]); if not v[i] then return msg(p, '需要 8 个数字参数') end end
+    Obj.AddWarp(v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8]); msg(p, '已创建传送点')
+  end },
+  { label = '设置可走 SetWalkable', hint = 'map floor x y able(0/1)', run = function(p, a)
+    local m, f, x, y, ab = tonumber(a[1]), tonumber(a[2]), tonumber(a[3]), tonumber(a[4]), tonumber(a[5])
+    if not (m and f and x and y and ab) then return msg(p, '需要 map floor x y able') end
+    Map.SetWalkable(m, f, x, y, ab); msg(p, '已设置可走属性')
+  end },
+  { label = '地图名 SetMapName', hint = 'map floor 名称', run = function(p, a)
+    local m, f = tonumber(a[1]), tonumber(a[2]); local nm = rest(a, 3)
+    if not (m and f) or nm == '' then return msg(p, '需要 map floor 名称') end
+    NLG.SetMapName(m, f, nm); msg(p, '已设置地图名')
+  end },
+  { label = '职业声望上限 JobFameLimit', hint = 'job [limit]', run = function(p, a)
+    local job, lim = tonumber(a[1]), tonumber(a[2])
+    if not job then return msg(p, '需要 job') end
+    if lim then Setup.SetJobFameLimit(job, lim); msg(p, '已设置声望上限')
+    else msg(p, '声望上限: ' .. tostring(Setup.GetJobFameLimit(job))) end
+  end },
+  { label = '随机数 Rand', hint = 'min max', run = function(p, a)
+    local lo, hi = tonumber(a[1]), tonumber(a[2]); if not (lo and hi) then return msg(p, '需要 min max') end
+    msg(p, 'Rand -> ' .. tostring(NLG.Rand(lo, hi)))
+  end },
+  { label = '游戏时间 GameTime', hint = '(无参数)', run = function(p)
+    msg(p, 'GameTime -> ' .. tostring(NLG.GetGameTime()))
+  end },
+  { label = '执行SQL SQLRun', hint = '完整SQL语句', run = function(p, a, raw)
+    if not raw or raw == '' then return msg(p, '需要 SQL 语句') end
+    SQL.Run(raw); msg(p, 'SQL 已执行')
+  end },
+  { label = '查询SQL SQLQuery', hint = '完整SELECT语句', run = function(p, a, raw)
+    if not raw or raw == '' then return msg(p, '需要 SQL 语句') end
+    msg(p, 'SQL结果: ' .. tostring(SQL.Query(raw)))
+  end },
+  { label = '服务器消息 ServerMsg', hint = 'msgId [新值]', run = function(p, a)
+    local id = tonumber(a[1]); local val = rest(a, 2)
+    if not id then return msg(p, '需要 msgId') end
+    if val ~= '' then Data.SetMessage(id, val); msg(p, '已设置消息') else msg(p, '消息: ' .. tostring(Data.GetMessage(id))) end
+  end },
+  { label = '删除角色 DeleteCharacter', hint = '账号CDK 槽位(0-?)', run = function(p, a)
+    local k, place = a[1], tonumber(a[2])
+    if not (k and place) then return msg(p, '需要 账号CDK 槽位') end
+    NLG.DeleteCharacter(k, place); msg(p, '已请求删除角色 ' .. k .. '/' .. place)
+  end },
 }
 
--- ---- SeqNo scheme (encodes which screen the window belongs to) --------------
+-- ---- SeqNo scheme ----------------------------------------------------------
 --   1            = root menu
 --   2000 + page  = command list, page N
 --   3000 + index = input box for command #index
@@ -139,11 +222,11 @@ end
 
 function GmNpc:runCommand(player, index, data)
   local c = commands[index]; if not c then return end
-  local ok, err = pcall(c.run, player, tokenize(data))
+  local ok, err = pcall(c.run, player, tokenize(data), data)
   if not ok then msg(player, '执行出错: ' .. tostring(err)) end
 end
 
--- ---- lifecycle -------------------------------------------------------------
+-- ---- access control + lifecycle --------------------------------------------
 
 function GmNpc:checkAdmin(player)
   local admin = getModule('admin')
@@ -178,7 +261,7 @@ function GmNpc:onLoad()
       if select == 0 then self:showCommands(theNpc, player, 1) end
       return
 
-    elseif seq >= SEQ_CMD_BASE and seq < SEQ_IN_BASE then -- command list
+    elseif seq >= SEQ_CMD_BASE and seq < SEQ_IN_BASE then
       local page = seq - SEQ_CMD_BASE
       if select > 0 then
         if select == CONST.BUTTON_下一页 then
@@ -186,13 +269,13 @@ function GmNpc:onLoad()
         elseif select == CONST.BUTTON_上一页 then
           self:showCommands(theNpc, player, page - 1)
         end
-        return -- cancel/close
+        return
       end
       local row = tonumber(data)
       if row then self:showCommandInput(theNpc, player, (page - 1) * PAGE_SIZE + row) end
       return
 
-    elseif seq >= SEQ_IN_BASE then -- input box for a command
+    elseif seq >= SEQ_IN_BASE then
       if select == CONST.BUTTON_确定 then
         self:runCommand(player, seq - SEQ_IN_BASE, data)
       end
