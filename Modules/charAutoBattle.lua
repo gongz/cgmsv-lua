@@ -26,6 +26,8 @@ function DoAction(charIndex, actionNum)
 end
 
 function Module:battleAction(battleIndex, ch)
+  -- only auto-act when this player explicitly turned auto-battle ON (default OFF = manual control)
+  if tonumber(Char.GetData(ch, CONST.对象_自动战斗开关)) ~= 1 then return 1 end
   local petSlot = Char.GetData(ch, CONST.对象_战宠);
   local ridePet = Char.GetData(ch, CONST.对象_骑宠);
   local ch2 = ch;

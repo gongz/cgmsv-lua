@@ -101,6 +101,13 @@ local commands = {
     msg(p, string.format('GetData[%d]=%s', d, tostring(Char.GetData(p, d))))
   end },
 
+  { label = '自动战斗 AutoBattle', hint = '0/1 留空切换', run = function(p, a)
+    local cur = tonumber(Char.GetData(p, CONST.对象_自动战斗开关)) or 0
+    local nv = a[1] and tonumber(a[1]) or ((cur == 1) and 0 or 1)
+    Char.SetData(p, CONST.对象_自动战斗开关, nv)
+    msg(p, '自动战斗 ' .. (nv == 1 and '开启' or '关闭'))
+  end },
+
   -- ===== GM administration =====
   { label = '设为GM AddGM', hint = '账号CDK', run = function(p, a)
     local k = a[1]; local ad = getModule('admin')
