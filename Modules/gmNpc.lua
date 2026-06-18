@@ -223,6 +223,8 @@ end
 
 function GmNpc:showCommandInput(npc, player, index)
   local c = commands[index]; if not c then return end
+  if string.find(c.label, 'GiveItem', 1, true) then return self:itemMenuShow(player) end
+  if string.find(c.label, 'GivePet', 1, true) then return self:petMenuShow(player) end
   NLG.ShowWindowTalked(player, npc, CONST.窗口_输入框, CONST.BUTTON_确定关闭, SEQ_IN_BASE + index,
     '\\n' .. c.label .. '\\n请输入: ' .. c.hint)
 end
@@ -234,6 +236,230 @@ function GmNpc:runCommand(player, index, data)
 end
 
 -- ---- access control + lifecycle --------------------------------------------
+
+-- ============================================================================
+-- Name-based item / pet pickers - pick from lists instead of typing IDs.
+--   Item: search by name OR browse by category -> pick -> quantity -> give
+--   Pet : pick race (种族) -> pick pet -> give
+-- Data parsed lazily from data/*.txt; per-player state in self.sess[player].
+-- ============================================================================
+
+-- picker window SeqNos (kept clear of SEQ_ROOT / SEQ_CMD_BASE / SEQ_IN_BASE)
+local SEQ_ITEM_MENU   = 4000
+local SEQ_ITEM_SEARCH = 4001
+local SEQ_ITEM_CATS   = 4002
+local SEQ_ITEM_LIST   = 4003
+local SEQ_ITEM_QTY    = 4004
+local SEQ_PET_RACES   = 5000
+local SEQ_PET_LIST    = 5001
+
+-- race code -> display name (server-owner mapping, positional 0-9)
+local RACE_NAMES = {
+  [0] = '人形系', [1] = '龙　系', [2] = '不死系', [3] = '飞行系',
+  [4] = '昆虫系', [5] = '植物系', [6] = '野兽系', [7] = '特殊系',
+  [8] = '金属系', [9] = '头目系',
+}
+
+-- lazily parse item + pet data from the data/ files
+function GmNpc:ensureData()
+  if self.dataReady then return end
+  self.items, self.cats = {}, {}
+  local catMap = {}
+  local function each(path, fn)
+    local f = io.open(path)
+    if not f then self:logError('cannot open ' .. path); return end
+    for line in f:lines() do
+      line = string.gsub(line, '\r$', '')
+      if line ~= '' and string.sub(line, 1, 1) ~= '#' then fn(string.split(line, '\t')) end
+    end
+    f:close()
+  end
+  each('data/itemset.txt', function(t)
+    local id, name, cat = tonumber(t[12]), t[2], t[1]
+    if id and name and name ~= '' then
+      self.items[#self.items + 1] = { id = id, name = name }
+      if cat and cat ~= '' then
+        local grp = catMap[cat]
+        if not grp then grp = { name = cat, items = {} }; catMap[cat] = grp; self.cats[#self.cats + 1] = grp end
+        grp.items[#grp.items + 1] = { id = id, name = name }
+      end
+    end
+  end)
+  table.sort(self.cats, function(a, b) return #a.items > #b.items end)
+  local baseName, baseRace = {}, {}
+  each('data/enemybase.txt', function(t)
+    local bid = t[2]
+    if bid and bid ~= '' then baseName[bid] = t[1]; baseRace[bid] = tonumber(t[5]) or 0 end
+  end)
+  local races = {}
+  each('data/enemy.txt', function(t)
+    local eid, bid = tonumber(t[3]), t[4]
+    local nm = baseName[bid]
+    if eid and nm and nm ~= '' then
+      local rc = baseRace[bid] or 0
+      local grp = races[rc]
+      if not grp then grp = { race = rc, pets = {} }; races[rc] = grp end
+      grp.pets[#grp.pets + 1] = { id = eid, name = nm }
+    end
+  end)
+  self.raceList = {}
+  for rc = 0, 9 do if races[rc] then self.raceList[#self.raceList + 1] = races[rc] end end
+  for rc, grp in pairs(races) do if rc < 0 or rc > 9 then self.raceList[#self.raceList + 1] = grp end end
+  self.dataReady = true
+  self:logInfo('picker data', #self.items, 'items', #self.cats, 'cats', #self.raceList, 'races')
+end
+
+function GmNpc:sessReset(player)
+  self.sess = self.sess or {}
+  self.sess[player] = { page = 1 }
+  return self.sess[player]
+end
+
+-- generic paginated selection window (8 rows/page)
+function GmNpc:renderPage(player, seqno, title, list, fmt)
+  local s = self.sess[player] or self:sessReset(player)
+  local total = math.max(1, math.ceil(#list / PAGE_SIZE))
+  if s.page < 1 then s.page = 1 elseif s.page > total then s.page = total end
+  local opts, start = {}, (s.page - 1) * PAGE_SIZE
+  for i = start + 1, math.min(start + PAGE_SIZE, #list) do opts[#opts + 1] = fmt(list[i]) end
+  local m = self:NPC_buildSelectionText(string.format('%s %d/%d', title, s.page, total), opts)
+  NLG.ShowWindowTalked(player, self.npc, CONST.窗口_选择框, pageButtons(s.page, total), seqno, m)
+end
+
+-- prev/next page buttons; returns true if a button (not a row) was pressed
+function GmNpc:pageNav(player, select, render)
+  if select and select > 0 then
+    local s = self.sess[player]
+    if s and select == CONST.BUTTON_下一页 then s.page = s.page + 1; render()
+    elseif s and select == CONST.BUTTON_上一页 then s.page = s.page - 1; render() end
+    return true
+  end
+  return false
+end
+
+-- ITEM picker -----------------------------------------------------------------
+function GmNpc:itemMenuShow(player)
+  self:ensureData(); self:sessReset(player)
+  local m = self:NPC_buildSelectionText('给予道具', { '按名称搜索', '按分类浏览' })
+  NLG.ShowWindowTalked(player, self.npc, CONST.窗口_选择框, CONST.BUTTON_关闭, SEQ_ITEM_MENU, m)
+end
+
+function GmNpc:itemSearchPrompt(player)
+  NLG.ShowWindowTalked(player, self.npc, CONST.窗口_输入框, CONST.BUTTON_确定关闭, SEQ_ITEM_SEARCH,
+    '\\n输入道具名称关键字')
+end
+
+function GmNpc:itemSearchRun(player, kw)
+  kw = tostring(kw or '')
+  local res = {}
+  for _, it in ipairs(self.items) do
+    if kw == '' or string.find(it.name, kw, 1, true) then res[#res + 1] = it end
+  end
+  local s = self.sess[player] or self:sessReset(player)
+  s.items = res; s.page = 1
+  if #res == 0 then return msg(player, '没有找到匹配的道具') end
+  self:itemListShow(player)
+end
+
+function GmNpc:itemCatsShow(player)
+  self:renderPage(player, SEQ_ITEM_CATS, '选择分类', self.cats,
+    function(c) return c.name .. ' (' .. #c.items .. ')' end)
+end
+
+function GmNpc:itemListShow(player)
+  local s = self.sess[player]; if not s or not s.items then return end
+  self:renderPage(player, SEQ_ITEM_LIST, '选择道具', s.items, function(it) return it.name end)
+end
+
+function GmNpc:itemQtyPrompt(player, it)
+  NLG.ShowWindowTalked(player, self.npc, CONST.窗口_输入框, CONST.BUTTON_确定关闭, SEQ_ITEM_QTY,
+    '\\n' .. it.name .. '\\n输入数量(默认1)')
+end
+
+function GmNpc:itemGive(player, data)
+  local s = self.sess[player]; if not s or not s.pendingItem then return end
+  local amt = tonumber(data) or 1; if amt < 1 then amt = 1 end
+  local id = s.pendingItem
+  Char.GiveItem(player, id, amt, true)
+  msg(player, string.format('%s x%d', tostring(Item.GetNameFromNumber(id) or id), amt))
+end
+
+-- PET picker ------------------------------------------------------------------
+function GmNpc:petRacesShow(player)
+  self:renderPage(player, SEQ_PET_RACES, '选择种族', self.raceList,
+    function(r) return (RACE_NAMES[r.race] or ('种族' .. r.race)) .. ' (' .. #r.pets .. ')' end)
+end
+
+function GmNpc:petMenuShow(player)
+  self:ensureData(); self:sessReset(player)
+  self:petRacesShow(player)
+end
+
+function GmNpc:petListShow(player)
+  local s = self.sess[player]; if not s or not s.pets then return end
+  self:renderPage(player, SEQ_PET_LIST, '选择宠物', s.pets, function(p) return p.name end)
+end
+
+function GmNpc:petGive(player, p)
+  local r = Char.GivePet(player, p.id, 1)
+  msg(player, (r and r >= 0) and ('已给予宠物 ' .. p.name) or '给予失败')
+end
+
+-- window dispatch for picker screens; returns true if it handled seq
+function GmNpc:onPickerWindow(npc, player, seq, select, data)
+  local s = self.sess and self.sess[player]
+  if seq == SEQ_ITEM_MENU then
+    if select == 0 then
+      local row = tonumber(data)
+      if row == 1 then self:itemSearchPrompt(player)
+      elseif row == 2 then self:itemCatsShow(player) end
+    end
+    return true
+  elseif seq == SEQ_ITEM_SEARCH then
+    if select == CONST.BUTTON_确定 then self:itemSearchRun(player, data) end
+    return true
+  elseif seq == SEQ_ITEM_CATS then
+    if not self:pageNav(player, select, function() self:itemCatsShow(player) end) then
+      local row = tonumber(data)
+      if row and s then
+        local cat = self.cats[(s.page - 1) * PAGE_SIZE + row]
+        if cat then s.items = cat.items; s.page = 1; self:itemListShow(player) end
+      end
+    end
+    return true
+  elseif seq == SEQ_ITEM_LIST then
+    if not self:pageNav(player, select, function() self:itemListShow(player) end) then
+      local row = tonumber(data)
+      if row and s and s.items then
+        local it = s.items[(s.page - 1) * PAGE_SIZE + row]
+        if it then s.pendingItem = it.id; self:itemQtyPrompt(player, it) end
+      end
+    end
+    return true
+  elseif seq == SEQ_ITEM_QTY then
+    if select == CONST.BUTTON_确定 then self:itemGive(player, data) end
+    return true
+  elseif seq == SEQ_PET_RACES then
+    if not self:pageNav(player, select, function() self:petRacesShow(player) end) then
+      local row = tonumber(data)
+      if row and s then
+        local r = self.raceList[(s.page - 1) * PAGE_SIZE + row]
+        if r then s.pets = r.pets; s.page = 1; self:petListShow(player) end
+      end
+    end
+    return true
+  elseif seq == SEQ_PET_LIST then
+    if not self:pageNav(player, select, function() self:petListShow(player) end) then
+      local row = tonumber(data)
+      if row and s and s.pets then
+        local p = s.pets[(s.page - 1) * PAGE_SIZE + row]
+        if p then self:petGive(player, p) end
+      end
+    end
+    return true
+  end
+  return false
+end
 
 function GmNpc:checkAdmin(player)
   local admin = getModule('admin')
@@ -279,6 +505,7 @@ function GmNpc:onLoad()
   self:NPC_regWindowTalkedEvent(npc, function(theNpc, player, seqno, select, data)
     if not self:checkAdmin(player) then return end
     local seq = tonumber(seqno) or SEQ_ROOT
+    if self:onPickerWindow(theNpc, player, seq, select, data) then return end
 
     if seq == SEQ_ROOT then
       if select == 0 then self:showCommands(theNpc, player, 1) end
