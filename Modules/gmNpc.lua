@@ -20,10 +20,10 @@ local GmNpc = ModuleBase:createModule(mName)
 
 local NPC_NAME  = 'GM助手'
 local NPC_IMAGE = 103010
--- NPC is hidden on an unused map (59999); it now serves only as the window-event
--- sink for the menu. Players open the GM menu by USING the GM tool item below,
--- not by walking up and talking to an NPC.
-local NPC_POS   = { x = 137, y = 125, mapType = 0, map = 59999, direction = 6 }
+-- GM NPC on town map 1000 at (242,90) - reachable, so a normal player can walk up
+-- and talk to it (used to bootstrap GMs via AddGM). Also openable via the GM tool
+-- item below. Original spot 242,88 had an item, so placed 2 blocks south.
+local NPC_POS   = { x = 242, y = 90, mapType = 0, map = 1000, direction = 6 }
 
 -- GM tool item: using / double-clicking this item opens the same menu as talking
 -- to the (now hidden) NPC. Defined in data/itemset.txt with item id 49999.
@@ -462,6 +462,9 @@ function GmNpc:onPickerWindow(npc, player, seq, select, data)
 end
 
 function GmNpc:checkAdmin(player)
+  -- WARNING: GM gate DISABLED for bootstrap - any player can use the GM menu
+  -- (including AddGM to promote accounts). Remove the next line to re-enable.
+  if true then return true end
   local admin = getModule('admin')
   if admin and admin.isAdmin and not admin:isAdmin(player) then
     NLG.SystemMessage(player, '只有管理员可以使用GM助手')
