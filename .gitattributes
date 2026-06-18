@@ -1,0 +1,9 @@
+# This is a Windows CrossGate server: data files are GBK-encoded with CRLF line
+# endings, and the engine's parsers depend on that exact byte layout.
+# Disable git's automatic line-ending normalization on every platform so the
+# repo always checks out byte-for-byte identical (a LF/CRLF mismatch corrupts
+# data parsing, e.g. all enemies collapsing to id=1).
+* -text
+
+# Binary assets: never diff or convert.
+*.db3 binary
