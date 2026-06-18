@@ -20,7 +20,14 @@ local GmNpc = ModuleBase:createModule(mName)
 
 local NPC_NAME  = 'GM÷˙ ÷'
 local NPC_IMAGE = 103010
-local NPC_POS   = { x = 242, y = 88, mapType = 0, map = 1000, direction = 6 }
+-- NPC is hidden on an unused map (59999); it now serves only as the window-event
+-- sink for the menu. Players open the GM menu by USING the GM tool item below,
+-- not by walking up and talking to an NPC.
+local NPC_POS   = { x = 137, y = 125, mapType = 0, map = 59999, direction = 6 }
+
+-- GM tool item: using / double-clicking this item opens the same menu as talking
+-- to the (now hidden) NPC. Defined in data/itemset.txt with item id 49999.
+local GM_ITEM_ID = 49999
 
 local PAGE_SIZE = 8
 
@@ -237,8 +244,24 @@ function GmNpc:checkAdmin(player)
   return true
 end
 
+-- Item entry point: using the GM tool opens the same menu as talking to the NPC.
+-- The item is never consumed; non-admins are rejected by checkAdmin.
+function GmNpc:onItemUsed(charIndex, targetCharIndex, itemSlot)
+  local itemIndex = Char.GetItemIndex(charIndex, itemSlot)
+  if tonumber(Item.GetData(itemIndex, CONST.µ¿æﬂ_ID)) == GM_ITEM_ID then
+    if self:checkAdmin(charIndex) then
+      self:showRoot(self.npc, charIndex)
+    end
+    return -1 -- handled: never consume the GM tool / suppress default use
+  end
+  return 1
+end
+
 function GmNpc:onLoad()
   self:logInfo('load')
+
+  -- open the GM menu when an admin USES the GM tool item
+  self:regCallback('ItemUseEvent', Func.bind(self.onItemUsed, self))
 
   local npc = self:NPC_createNormal(NPC_NAME, NPC_IMAGE, NPC_POS)
   if npc < 0 then
