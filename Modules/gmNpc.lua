@@ -108,6 +108,29 @@ local commands = {
     msg(p, '自动战斗 ' .. (nv == 1 and '开启' or '关闭'))
   end },
 
+  { label = '增加声望 AddFame', hint = '数量(可负)', run = function(p, a)
+    local n = tonumber(a[1]); if not n then return msg(p, '需要数量') end
+    local cur = tonumber(Char.GetData(p, CONST.对象_声望)) or 0
+    Char.SetData(p, CONST.对象_声望, cur + n); Char.UpCharStatus(p)
+    msg(p, string.format('声望 %s%d', n >= 0 and '+' or '', n))
+  end },
+
+  { label = '移动一格 Step', hint = 'n/s/e/w (北南东西)', run = function(p, a)
+    local d = string.lower(tostring(a[1] or ''))
+    local dx, dy = 0, 0
+    if d == 'n' or d == '北' then dy = -1
+    elseif d == 's' or d == '南' then dy = 1
+    elseif d == 'e' or d == '东' then dx = 1
+    elseif d == 'w' or d == '西' then dx = -1
+    else return msg(p, '方向: n/s/e/w') end
+    local mt = Char.GetData(p, CONST.CHAR_地图类型)
+    local mp = Char.GetData(p, CONST.CHAR_地图)
+    local x = Char.GetData(p, CONST.CHAR_X) + dx
+    local y = Char.GetData(p, CONST.CHAR_Y) + dy
+    Char.Warp(p, mt, mp, x, y)
+    msg(p, string.format('移动到 (%d,%d)', x, y))
+  end },
+
   -- ===== GM administration =====
   { label = '设为GM AddGM', hint = '账号CDK', run = function(p, a)
     local k = a[1]; local ad = getModule('admin')
@@ -232,6 +255,7 @@ function GmNpc:showCommandInput(npc, player, index)
   local c = commands[index]; if not c then return end
   if string.find(c.label, 'GiveItem', 1, true) then return self:itemMenuShow(player) end
   if string.find(c.label, 'GivePet', 1, true) then return self:petMenuShow(player) end
+  if string.find(c.label, 'AddSkill', 1, true) then return self:skillMenuShow(player) end
   NLG.ShowWindowTalked(player, npc, CONST.窗口_输入框, CONST.BUTTON_确定关闭, SEQ_IN_BASE + index,
     '\\n' .. c.label .. '\\n请输入: ' .. c.hint)
 end
@@ -259,6 +283,8 @@ local SEQ_ITEM_LIST   = 4003
 local SEQ_ITEM_QTY    = 4004
 local SEQ_PET_RACES   = 5000
 local SEQ_PET_LIST    = 5001
+local SEQ_SKILL_SEARCH = 6000
+local SEQ_SKILL_LIST   = 6001
 
 -- race code -> display name (server-owner mapping, positional 0-9)
 local RACE_NAMES = {
@@ -282,13 +308,14 @@ function GmNpc:ensureData()
     f:close()
   end
   each('data/itemset.txt', function(t)
-    local id, name, cat = tonumber(t[12]), t[2], t[1]
+    local id, name, cat, lv = tonumber(t[12]), t[2], t[1], tonumber(t[24])
     if id and name and name ~= '' then
-      self.items[#self.items + 1] = { id = id, name = name }
+      local it = { id = id, name = name, lv = lv }
+      self.items[#self.items + 1] = it
       if cat and cat ~= '' then
         local grp = catMap[cat]
         if not grp then grp = { name = cat, items = {} }; catMap[cat] = grp; self.cats[#self.cats + 1] = grp end
-        grp.items[#grp.items + 1] = { id = id, name = name }
+        grp.items[#grp.items + 1] = it
       end
     end
   end)
@@ -312,6 +339,11 @@ function GmNpc:ensureData()
   self.raceList = {}
   for rc = 0, 9 do if races[rc] then self.raceList[#self.raceList + 1] = races[rc] end end
   for rc, grp in pairs(races) do if rc < 0 or rc > 9 then self.raceList[#self.raceList + 1] = grp end end
+  self.skills = {}
+  each('data/skill.txt', function(t)
+    local nm, sid = t[1], tonumber(t[2])
+    if nm and nm ~= '' and sid then self.skills[#self.skills + 1] = { id = sid, name = nm } end
+  end)
   self.dataReady = true
   self:logInfo('picker data', #self.items, 'items', #self.cats, 'cats', #self.raceList, 'races')
 end
@@ -375,7 +407,7 @@ end
 
 function GmNpc:itemListShow(player)
   local s = self.sess[player]; if not s or not s.items then return end
-  self:renderPage(player, SEQ_ITEM_LIST, '选择道具', s.items, function(it) return it.name end)
+  self:renderPage(player, SEQ_ITEM_LIST, '选择道具', s.items, function(it) return it.lv and (it.name .. ' Lv' .. it.lv) or it.name end)
 end
 
 function GmNpc:itemQtyPrompt(player, it)
@@ -387,7 +419,11 @@ function GmNpc:itemGive(player, data)
   local s = self.sess[player]; if not s or not s.pendingItem then return end
   local amt = tonumber(data) or 1; if amt < 1 then amt = 1 end
   local id = s.pendingItem
-  Char.GiveItem(player, id, amt, true)
+  local idx = Char.GiveItem(player, id, amt, true)
+  if idx and idx >= 0 then
+    Item.SetData(idx, CONST.道具_已鉴定, 1)
+    Item.UpItem(player, Char.GetItemSlot(player, idx))
+  end
   msg(player, string.format('%s x%d', tostring(Item.GetNameFromNumber(id) or id), amt))
 end
 
@@ -413,6 +449,40 @@ function GmNpc:petGive(player, p)
 end
 
 -- window dispatch for picker screens; returns true if it handled seq
+-- SKILL picker (by name; reads data/skill.txt) ------------------------------
+function GmNpc:skillMenuShow(player)
+  self:ensureData(); self:sessReset(player)
+  NLG.ShowWindowTalked(player, self.npc, CONST.窗口_输入框, CONST.BUTTON_确定关闭, SEQ_SKILL_SEARCH,
+    '\n输入技能名称关键字(留空显示全部)')
+end
+
+function GmNpc:skillSearchRun(player, kw)
+  kw = tostring(kw or '')
+  local res = {}
+  for _, sk in ipairs(self.skills) do
+    if kw == '' or string.find(sk.name, kw, 1, true) then res[#res + 1] = sk end
+  end
+  local sess = self.sess[player] or self:sessReset(player)
+  sess.skills = res; sess.page = 1
+  if #res == 0 then return msg(player, '没有找到匹配的技能') end
+  self:skillListShow(player)
+end
+
+function GmNpc:skillListShow(player)
+  local sess = self.sess[player]; if not sess or not sess.skills then return end
+  self:renderPage(player, SEQ_SKILL_LIST, '选择技能', sess.skills, function(sk) return sk.name end)
+end
+
+function GmNpc:skillGive(player, sk)
+  if Char.HaveSkill(player, sk.id) >= 0 then return msg(player, '已学过: ' .. sk.name) end
+  local r = Char.AddSkill(player, sk.id, 0, false)
+  if r and r >= 0 then
+    NLG.UpChar(player); msg(player, '已学技能: ' .. sk.name)
+  else
+    msg(player, '学习失败(技能栏已满?): ' .. sk.name)
+  end
+end
+
 function GmNpc:onPickerWindow(npc, player, seq, select, data)
   local s = self.sess and self.sess[player]
   if seq == SEQ_ITEM_MENU then
@@ -461,6 +531,18 @@ function GmNpc:onPickerWindow(npc, player, seq, select, data)
       if row and s and s.pets then
         local p = s.pets[(s.page - 1) * PAGE_SIZE + row]
         if p then self:petGive(player, p) end
+      end
+    end
+    return true
+  elseif seq == SEQ_SKILL_SEARCH then
+    if select == CONST.BUTTON_确定 then self:skillSearchRun(player, data) end
+    return true
+  elseif seq == SEQ_SKILL_LIST then
+    if not self:pageNav(player, select, function() self:skillListShow(player) end) then
+      local row = tonumber(data)
+      if row and s and s.skills then
+        local sk = s.skills[(s.page - 1) * PAGE_SIZE + row]
+        if sk then self:skillGive(player, sk) end
       end
     end
     return true
