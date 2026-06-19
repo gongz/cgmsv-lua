@@ -131,6 +131,10 @@ local commands = {
     msg(p, string.format('移动到 (%d,%d)', x, y))
   end },
 
+  { label = '转职 GetJob', hint = '从列表选择职业', run = function(p) end },
+
+  { label = '宠物技能 PetSkill', hint = '选宠物-选技能-选栏位', run = function(p) end },
+
   -- ===== GM administration =====
   { label = '设为GM AddGM', hint = '账号CDK', run = function(p, a)
     local k = a[1]; local ad = getModule('admin')
@@ -256,6 +260,8 @@ function GmNpc:showCommandInput(npc, player, index)
   if string.find(c.label, 'GiveItem', 1, true) then return self:itemMenuShow(player) end
   if string.find(c.label, 'GivePet', 1, true) then return self:petMenuShow(player) end
   if string.find(c.label, 'AddSkill', 1, true) then return self:skillMenuShow(player) end
+  if string.find(c.label, 'GetJob', 1, true) then return self:jobMenuShow(player) end
+  if string.find(c.label, 'PetSkill', 1, true) then return self:petSkillStart(player) end
   NLG.ShowWindowTalked(player, npc, CONST.窗口_输入框, CONST.BUTTON_确定关闭, SEQ_IN_BASE + index,
     '\\n' .. c.label .. '\\n请输入: ' .. c.hint)
 end
@@ -285,6 +291,12 @@ local SEQ_PET_RACES   = 5000
 local SEQ_PET_LIST    = 5001
 local SEQ_SKILL_SEARCH = 6000
 local SEQ_SKILL_LIST   = 6001
+local SEQ_JOB_SEARCH  = 7000
+local SEQ_JOB_LIST    = 7001
+local SEQ_PETSK_PET    = 8000
+local SEQ_PETSK_SEARCH = 8001
+local SEQ_PETSK_SKILL  = 8002
+local SEQ_PETSK_SLOT   = 8003
 
 -- race code -> display name (server-owner mapping, positional 0-9)
 local RACE_NAMES = {
@@ -326,10 +338,12 @@ function GmNpc:ensureData()
     if bid and bid ~= '' then baseName[bid] = t[1]; baseRace[bid] = tonumber(t[5]) or 0 end
   end)
   local races = {}
+  self.enemyName = {}
   each('data/enemy.txt', function(t)
     local eid, bid = tonumber(t[3]), t[4]
     local nm = baseName[bid]
     if eid and nm and nm ~= '' then
+      self.enemyName[eid] = nm
       local rc = baseRace[bid] or 0
       local grp = races[rc]
       if not grp then grp = { race = rc, pets = {} }; races[rc] = grp end
@@ -343,6 +357,16 @@ function GmNpc:ensureData()
   each('data/skill.txt', function(t)
     local nm, sid = t[1], tonumber(t[2])
     if nm and nm ~= '' and sid then self.skills[#self.skills + 1] = { id = sid, name = nm } end
+  end)
+  self.jobs = {}
+  each('data/jobs.txt', function(t)
+    local nm, jid = t[1], tonumber(t[3])
+    if nm and nm ~= '' and jid then self.jobs[#self.jobs + 1] = { id = jid, name = nm } end
+  end)
+  self.techs, self.techName = {}, {}
+  each('data/tech.txt', function(t)
+    local nm, tid = t[1], tonumber(t[4])
+    if nm and nm ~= '' and tid then self.techs[#self.techs + 1] = { id = tid, name = nm }; self.techName[tid] = nm end
   end)
   self.dataReady = true
   self:logInfo('picker data', #self.items, 'items', #self.cats, 'cats', #self.raceList, 'races')
@@ -483,6 +507,107 @@ function GmNpc:skillGive(player, sk)
   end
 end
 
+-- JOB picker (by name; reads data/jobs.txt) --------------------------------
+function GmNpc:jobMenuShow(player)
+  self:ensureData(); self:sessReset(player)
+  NLG.ShowWindowTalked(player, self.npc, CONST.窗口_输入框, CONST.BUTTON_确定关闭, SEQ_JOB_SEARCH,
+    '\n输入职业名称关键字(留空显示全部)')
+end
+
+function GmNpc:jobSearchRun(player, kw)
+  kw = tostring(kw or '')
+  local res = {}
+  for _, jb in ipairs(self.jobs) do
+    if kw == '' or string.find(jb.name, kw, 1, true) then res[#res + 1] = jb end
+  end
+  local sess = self.sess[player] or self:sessReset(player)
+  sess.jobs = res; sess.page = 1
+  if #res == 0 then return msg(player, '没有找到匹配的职业') end
+  self:jobListShow(player)
+end
+
+function GmNpc:jobListShow(player)
+  local sess = self.sess[player]; if not sess or not sess.jobs then return end
+  self:renderPage(player, SEQ_JOB_LIST, '选择职业', sess.jobs, function(jb) return jb.name .. ' (' .. jb.id .. ')' end)
+end
+
+function GmNpc:jobGive(player, jb)
+  Char.SetData(player, CONST.CHAR_职业, jb.id)
+  NLG.UpChar(player)
+  msg(player, '已转职: ' .. jb.name .. ' (' .. jb.id .. ')')
+end
+
+-- PET SKILL picker: pet -> skill(tech) by name -> slot -> apply ------------
+function GmNpc:petSkillStart(player)
+  self:ensureData(); self:sessReset(player)
+  local sess = self.sess[player]
+  local list = {}
+  for slot = 0, 4 do
+    local pi = Char.GetPet(player, slot)
+    if pi and pi >= 0 then
+      local nm = self.enemyName[Char.GetPetEnemyId(player, slot)] or ('pet' .. slot)
+      list[#list + 1] = { slot = slot, petIndex = pi, name = nm }
+    end
+  end
+  if #list == 0 then return msg(player, '没有宠物') end
+  sess.psPetList = list
+  self:petSkillPetShow(player)
+end
+
+function GmNpc:petSkillPetShow(player)
+  local sess = self.sess[player]; if not sess or not sess.psPetList then return end
+  self:renderPage(player, SEQ_PETSK_PET, '选择宠物', sess.psPetList, function(e) return e.name .. ' (' .. e.slot .. ')' end)
+end
+
+function GmNpc:petSkillSearchPrompt(player)
+  NLG.ShowWindowTalked(player, self.npc, CONST.窗口_输入框, CONST.BUTTON_确定关闭, SEQ_PETSK_SEARCH,
+    '\n输入技能名称关键字(留空显示全部)')
+end
+
+function GmNpc:petSkillSearchRun(player, kw)
+  kw = tostring(kw or '')
+  local res = {}
+  for _, tc in ipairs(self.techs) do
+    if kw == '' or string.find(tc.name, kw, 1, true) then res[#res + 1] = tc end
+  end
+  local sess = self.sess[player] or self:sessReset(player)
+  sess.psTechList = res; sess.page = 1
+  if #res == 0 then return msg(player, '没有找到匹配的技能') end
+  self:petSkillListShow(player)
+end
+
+function GmNpc:petSkillListShow(player)
+  local sess = self.sess[player]; if not sess or not sess.psTechList then return end
+  self:renderPage(player, SEQ_PETSK_SKILL, '选择技能', sess.psTechList, function(tc) return tc.name end)
+end
+
+function GmNpc:petSkillSlotShow(player)
+  local sess = self.sess[player]; if not sess or not sess.psPetIndex then return end
+  local pi = sess.psPetIndex
+  local maxSlots = tonumber(Char.GetData(pi, CONST.宠物_技能栏)) or 0
+  local list = {}
+  for sl = 0, maxSlots - 1 do
+    local cur = Pet.GetSkill(pi, sl)
+    local nm = (cur and cur >= 0 and (self.techName[cur] or ('#' .. cur))) or '空'
+    list[#list + 1] = { slot = sl, name = nm }
+  end
+  if #list == 0 then list[1] = { slot = 0, name = '空' } end
+  sess.psSlotList = list
+  self:renderPage(player, SEQ_PETSK_SLOT, '选择技能栏', list, function(e) return e.slot .. ': ' .. e.name end)
+end
+
+function GmNpc:petSkillApply(player, slot)
+  local sess = self.sess[player]; if not sess or not sess.psPetIndex or not sess.psTechId then return end
+  Pet.DelSkill(sess.psPetIndex, slot)
+  local r = Pet.AddSkill(sess.psPetIndex, sess.psTechId)
+  NLG.UpChar(player)
+  if r and r == 1 then
+    msg(player, '已为宠物学习: ' .. (sess.psTechName or ''))
+  else
+    msg(player, '学习失败(技能栏已满或ID无效): ' .. (sess.psTechName or ''))
+  end
+end
+
 function GmNpc:onPickerWindow(npc, player, seq, select, data)
   local s = self.sess and self.sess[player]
   if seq == SEQ_ITEM_MENU then
@@ -543,6 +668,48 @@ function GmNpc:onPickerWindow(npc, player, seq, select, data)
       if row and s and s.skills then
         local sk = s.skills[(s.page - 1) * PAGE_SIZE + row]
         if sk then self:skillGive(player, sk) end
+      end
+    end
+    return true
+  elseif seq == SEQ_JOB_SEARCH then
+    if select == CONST.BUTTON_确定 then self:jobSearchRun(player, data) end
+    return true
+  elseif seq == SEQ_JOB_LIST then
+    if not self:pageNav(player, select, function() self:jobListShow(player) end) then
+      local row = tonumber(data)
+      if row and s and s.jobs then
+        local jb = s.jobs[(s.page - 1) * PAGE_SIZE + row]
+        if jb then self:jobGive(player, jb) end
+      end
+    end
+    return true
+  elseif seq == SEQ_PETSK_PET then
+    if not self:pageNav(player, select, function() self:petSkillPetShow(player) end) then
+      local row = tonumber(data)
+      if row and s and s.psPetList then
+        local e = s.psPetList[(s.page - 1) * PAGE_SIZE + row]
+        if e then s.psPetIndex = e.petIndex; s.psPetSlot = e.slot; self:petSkillSearchPrompt(player) end
+      end
+    end
+    return true
+  elseif seq == SEQ_PETSK_SEARCH then
+    if select == CONST.BUTTON_确定 then self:petSkillSearchRun(player, data) end
+    return true
+  elseif seq == SEQ_PETSK_SKILL then
+    if not self:pageNav(player, select, function() self:petSkillListShow(player) end) then
+      local row = tonumber(data)
+      if row and s and s.psTechList then
+        local tc = s.psTechList[(s.page - 1) * PAGE_SIZE + row]
+        if tc then s.psTechId = tc.id; s.psTechName = tc.name; self:petSkillSlotShow(player) end
+      end
+    end
+    return true
+  elseif seq == SEQ_PETSK_SLOT then
+    if not self:pageNav(player, select, function() self:petSkillSlotShow(player) end) then
+      local row = tonumber(data)
+      if row and s and s.psSlotList then
+        local e = s.psSlotList[(s.page - 1) * PAGE_SIZE + row]
+        if e then self:petSkillApply(player, e.slot) end
       end
     end
     return true
