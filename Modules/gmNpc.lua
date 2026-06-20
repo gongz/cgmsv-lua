@@ -115,13 +115,13 @@ local commands = {
     msg(p, string.format('声望 %s%d', n >= 0 and '+' or '', n))
   end },
 
-  { label = '移动一格 Step', hint = 'n/s/e/w (北南东西)', run = function(p, a)
+  { label = '移动两格 Step', hint = 'n/s/e/w (北南东西)', run = function(p, a)
     local d = string.lower(tostring(a[1] or ''))
     local dx, dy = 0, 0
-    if d == 'n' or d == '北' then dy = -1
-    elseif d == 's' or d == '南' then dy = 1
-    elseif d == 'e' or d == '东' then dx = 1
-    elseif d == 'w' or d == '西' then dx = -1
+    if d == 'n' or d == '北' then dy = -2
+    elseif d == 's' or d == '南' then dy = 2
+    elseif d == 'e' or d == '东' then dx = 2
+    elseif d == 'w' or d == '西' then dx = -2
     else return msg(p, '方向: n/s/e/w') end
     local mt = Char.GetData(p, CONST.CHAR_地图类型)
     local mp = Char.GetData(p, CONST.CHAR_地图)
@@ -499,7 +499,7 @@ end
 
 function GmNpc:skillGive(player, sk)
   if Char.HaveSkill(player, sk.id) >= 0 then return msg(player, '已学过: ' .. sk.name) end
-  local r = Char.AddSkill(player, sk.id, 0, false)
+  local r = Char.AddSkill(player, sk.id, 0, 0)
   if r and r >= 0 then
     NLG.UpChar(player); msg(player, '已学技能: ' .. sk.name)
   else
@@ -545,7 +545,8 @@ function GmNpc:petSkillStart(player)
   for slot = 0, 4 do
     local pi = Char.GetPet(player, slot)
     if pi and pi >= 0 then
-      local nm = self.enemyName[Char.GetPetEnemyId(player, slot)] or ('pet' .. slot)
+      local nm = Char.GetData(pi, CONST.对象_原名)
+      if not nm or nm == '' then nm = self.enemyName[Char.GetPetEnemyId(player, slot)] or ('pet' .. slot) end
       list[#list + 1] = { slot = slot, petIndex = pi, name = nm }
     end
   end
@@ -584,14 +585,12 @@ end
 function GmNpc:petSkillSlotShow(player)
   local sess = self.sess[player]; if not sess or not sess.psPetIndex then return end
   local pi = sess.psPetIndex
-  local maxSlots = tonumber(Char.GetData(pi, CONST.宠物_技能栏)) or 0
   local list = {}
-  for sl = 0, maxSlots - 1 do
+  for sl = 0, 9 do
     local cur = Pet.GetSkill(pi, sl)
     local nm = (cur and cur >= 0 and (self.techName[cur] or ('#' .. cur))) or '空'
     list[#list + 1] = { slot = sl, name = nm }
   end
-  if #list == 0 then list[1] = { slot = 0, name = '空' } end
   sess.psSlotList = list
   self:renderPage(player, SEQ_PETSK_SLOT, '选择技能栏', list, function(e) return e.slot .. ': ' .. e.name end)
 end
