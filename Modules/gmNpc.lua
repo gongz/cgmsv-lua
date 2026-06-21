@@ -321,8 +321,12 @@ function GmNpc:ensureData()
   each('data/itemset.txt', function(t)
     local id, name, cat, lv = tonumber(t[12]), t[2], t[1], tonumber(t[24])
     if id and name and name ~= '' then
-      local real = (t[3] and t[3] ~= '') or (t[6] and t[6] ~= '')
-      if not real then for i = 32, 49 do local v = tonumber(t[i]); if v and v > 0 then real = true; break end end end
+      -- only dummy-filter wearable gear (col19==2 = equipment); keep quest/other items
+      local real = true
+      if tonumber(t[19]) == 2 then
+        real = false
+        for i = 32, 49 do local v = tonumber(t[i]); if v and v > 0 then real = true; break end end
+      end
       local it = { id = id, name = name, lv = lv, real = real }
       self.items[#self.items + 1] = it
       if cat and cat ~= '' then
