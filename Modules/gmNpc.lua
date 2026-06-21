@@ -730,18 +730,47 @@ function GmNpc:warpsEnsure()
   if not self.warps then self:loadWarps() end
 end
 
+function GmNpc:ensureMapNames()
+  if self.mapNames then return end
+  self.mapNames = {}
+  local f = io.open('data/MapTransName.txt', 'r')
+  if not f then return end
+  for line in f:lines() do
+    line = string.gsub(line, '\r$', '')
+    if line ~= '' and string.sub(line, 1, 1) ~= '#' then
+      local t = string.split(line, '\t')
+      local key, nm = t[1], t[2]
+      if key and nm and nm ~= '' then
+        local idstr = string.match(key, '(%d%d%d+)')
+        local id = tonumber(idstr)
+        nm = string.split(nm, '|')[1]
+        if id and nm and nm ~= '' and not self.mapNames[id] then self.mapNames[id] = nm end
+      end
+    end
+  end
+  f:close()
+end
+
 function GmNpc:saveWarpStart(player)
-  self:warpsEnsure(); self:sessReset(player)
+  self:warpsEnsure(); self:ensureMapNames(); self:sessReset(player)
   local mp = Char.GetData(player, CONST.CHAR_地图)
   local x = Char.GetData(player, CONST.CHAR_X)
   local y = Char.GetData(player, CONST.CHAR_Y)
-  NLG.ShowWindowTalked(player, self.npc, CONST.窗口_输入框, CONST.BUTTON_确定关闭, SEQ_WARP_NAME,
-    string.format('\n当前 %d (%d,%d)\n输入传送点名称', mp, x, y))
+  local def = self.mapNames[tonumber(mp)] or ''
+  self.sess[player].warpDef = def
+  local prompt
+  if def ~= '' then
+    prompt = string.format('\n当前 %d (%d,%d)\n名称(留空用): %s', mp, x, y, def)
+  else
+    prompt = string.format('\n当前 %d (%d,%d)\n输入传送点名称', mp, x, y)
+  end
+  NLG.ShowWindowTalked(player, self.npc, CONST.窗口_输入框, CONST.BUTTON_确定关闭, SEQ_WARP_NAME, prompt)
 end
 
 function GmNpc:saveWarpDo(player, name)
   self:warpsEnsure()
   name = tostring(name or '')
+  if name == '' then name = (self.sess[player] and self.sess[player].warpDef) or '' end
   if name == '' then return msg(player, '需要名称') end
   local w = {
     name = name,
