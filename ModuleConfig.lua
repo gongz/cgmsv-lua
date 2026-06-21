@@ -18,8 +18,8 @@ loadModule('co')
 loadModule('shop')
 loadModule('warp')
 loadModule('warp2')
-loadModule('gmNpc')
-loadModule('gmItemUI') --Give-Item UI panel server
+loadModule('gmNpc', { path = 'GMNPC/gmNpc.lua' })
+loadModule('gmItemUI', { path = 'GMNPC/gmItemUI.lua' }) --Give-Item UI panel server
 --loadModule('itemPowerUp')
 loadModule('petRebirth')
 loadModule('petLottery')
