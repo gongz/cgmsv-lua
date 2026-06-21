@@ -9,8 +9,8 @@ end
 local function normalizeDirectionOrder(mapName)
     if not mapName or type(mapName) ~= "string" then return mapName end
     local orderPatterns = {
-        {"ï¿½ï¿½ï¿½ï¿½", "ï¿½ï¿½ï¿½ï¿½"}, {"ï¿½ï¿½ï¿½ï¿½", "ï¿½ï¿½ï¿½ï¿½"},
-        {"ï¿½ï¿½ï¿½ï¿½", "ï¿½ï¿½ï¿½ï¿½"}, {"ï¿½Ï¶ï¿½", "ï¿½ï¿½ï¿½ï¿½"},
+        {"±±¶«", "¶«±±"}, {"±±Î÷", "Î÷±±"},
+        {"ÄÏ¶«", "¶«ÄÏ"}, {"ÄÏÎ÷", "Î÷ÄÏ"},
     }
     local result = mapName
     for _, pattern in ipairs(orderPatterns) do
@@ -82,11 +82,11 @@ local function processGroup(groupPoints)
         local minDiff = 2
         local dirH, dirV = "", ""
 
-        if diffX > minDiff then dirH = "ï¿½ï¿½"
-        elseif diffX < -minDiff then dirH = "ï¿½ï¿½" end
+        if diffX > minDiff then dirH = "¶«"
+        elseif diffX < -minDiff then dirH = "Î÷" end
 
-        if diffY > minDiff then dirV = "ï¿½ï¿½"
-        elseif diffY < -minDiff then dirV = "ï¿½ï¿½" end
+        if diffY > minDiff then dirV = "ÄÏ"
+        elseif diffY < -minDiff then dirV = "±±" end
 
         local dirName = normalizeDirectionOrder(dirV .. dirH)
         if dirName ~= "" then
@@ -102,8 +102,8 @@ end
 function getWarpModule:get_warp(fd,head,data)
 	local player = tonumber(Protocol.GetCharByFd(fd))
     if not player or player < 0 then return nil end
-    local maptype = Char.GetData(player, CONST.ï¿½ï¿½ï¿½ï¿½_ï¿½ï¿½Í¼ï¿½ï¿½ï¿½ï¿½)
-    local mapid = Char.GetData(player, CONST.ï¿½ï¿½ï¿½ï¿½_ï¿½ï¿½Í¼)
+    local maptype = Char.GetData(player, CONST.¶ÔÏó_µØÍ¼ÀàÐÍ)
+    local mapid = Char.GetData(player, CONST.¶ÔÏó_µØÍ¼)
     if not maptype or not mapid then return nil end
 
     local maxx, maxy = Map.GetMapSize(maptype, mapid)
@@ -123,7 +123,7 @@ function getWarpModule:get_warp(fd,head,data)
                     elseif objtype == 1 then
                         local charIndex = Obj.GetCharIndex(obj)
                         if charIndex and charIndex >= 0 then
-                            local npcEventType = Char.GetData(charIndex, CONST.ï¿½ï¿½ï¿½ï¿½_NPC_EVENT_TYPE)
+                            local npcEventType = Char.GetData(charIndex, CONST.¶ÔÏó_NPC_EVENT_TYPE)
                             if npcEventType == 3 then
                                 local argNpc = NLG.GetArgNpc(charIndex)
                                 local warpto = string.split(argNpc, '|')
@@ -200,7 +200,7 @@ end
 
 function getWarpModule:del_diy(fd,head,data)
 	local player = tonumber(Protocol.GetCharByFd(fd))
-	local mapid = Char.GetData(player, CONST.ï¿½ï¿½ï¿½ï¿½_ï¿½ï¿½Í¼)
+	local mapid = Char.GetData(player, CONST.¶ÔÏó_µØÍ¼)
 	local diy = Char.GetExtData(player,mapid)
 
 	if not diy then
@@ -240,7 +240,7 @@ end
 
 function getWarpModule:input_diy(fd,head,data)
 	local player = tonumber(Protocol.GetCharByFd(fd))
-    local mapid = Char.GetData(player, CONST.ï¿½ï¿½ï¿½ï¿½_ï¿½ï¿½Í¼)
+    local mapid = Char.GetData(player, CONST.¶ÔÏó_µØÍ¼)
 	local diy = Char.GetExtData(player,mapid)
 	if diy then
 		diy = diy.."|"..data[1]
@@ -254,8 +254,8 @@ end
 function getWarpModule:findnpc(fd,head,data)
     local player = tonumber(Protocol.GetCharByFd(fd))
     local nametbl = {}
-    local maptype = Char.GetData(player,CONST.ï¿½ï¿½ï¿½ï¿½_ï¿½ï¿½Í¼ï¿½ï¿½ï¿½ï¿½)
-    local mapid = Char.GetData(player,CONST.ï¿½ï¿½ï¿½ï¿½_ï¿½ï¿½Í¼)
+    local maptype = Char.GetData(player,CONST.¶ÔÏó_µØÍ¼ÀàÐÍ)
+    local mapid = Char.GetData(player,CONST.¶ÔÏó_µØÍ¼)
     local maxx,maxy = Map.GetMapSize(maptype, mapid)
 
     if not maxx or not maxy then return 1 end
@@ -266,7 +266,7 @@ function getWarpModule:findnpc(fd,head,data)
             if j > 0 then
                 for key, v in ipairs(_objtbl) do
                     local _Index = Obj.GetCharIndex(v)
-                    local _Name = Char.GetData(_Index,CONST.ï¿½ï¿½ï¿½ï¿½_ï¿½ï¿½ï¿½ï¿½)
+                    local _Name = Char.GetData(_Index,CONST.¶ÔÏó_Ãû×Ö)
                     local objtype = Obj.GetType(v)
 
                     if _Index ~= player then
@@ -281,18 +281,18 @@ function getWarpModule:findnpc(fd,head,data)
         end
     end
 
-    local ï¿½È´ï¿½ï¿½ï¿½ï¿½ÍµÄ·ï¿½ï¿½ = ""
+    local packet = ""
     if #nametbl > 0 then
         for i = 1,#nametbl do
             if i == 1 then
-                ï¿½È´ï¿½ï¿½ï¿½ï¿½ÍµÄ·ï¿½ï¿½ = nametbl[i][1]..'|'..nametbl[i][2]..'|'..nametbl[i][3]
+                packet = nametbl[i][1]..'|'..nametbl[i][2]..'|'..nametbl[i][3]
             else
-                ï¿½È´ï¿½ï¿½ï¿½ï¿½ÍµÄ·ï¿½ï¿½ = ï¿½È´ï¿½ï¿½ï¿½ï¿½ÍµÄ·ï¿½ï¿½..'|'..nametbl[i][1]..'|'..nametbl[i][2]..'|'..nametbl[i][3]
+                packet = packet..'|'..nametbl[i][1]..'|'..nametbl[i][2]..'|'..nametbl[i][3]
             end
         end
     end
 
-    Protocol.Send(player, "allnpc", ï¿½È´ï¿½ï¿½ï¿½ï¿½ÍµÄ·ï¿½ï¿½)
+    Protocol.Send(player, "allnpc", packet)
     return 1
 end
 
