@@ -286,6 +286,7 @@ local SEQ_PET_RACES   = 5000
 local SEQ_PET_LIST    = 5001
 local SEQ_SKILL_SEARCH = 6000
 local SEQ_SKILL_LIST   = 6001
+local SEQ_SKILL_LEVEL  = 6002
 local SEQ_JOB_SEARCH  = 7000
 local SEQ_JOB_LIST    = 7001
 local SEQ_PETSK_PET    = 8000
@@ -504,11 +505,23 @@ function GmNpc:skillListShow(player)
   self:renderPage(player, SEQ_SKILL_LIST, '选择技能', sess.skills, function(sk) return sk.name end)
 end
 
-function GmNpc:skillGive(player, sk)
-  if Char.HaveSkill(player, sk.id) >= 0 then return msg(player, '已学过: ' .. sk.name) end
-  local r = Char.AddSkill(player, sk.id, 0, 0)
-  if r and r >= 0 then
-    NLG.UpChar(player); msg(player, '已学技能: ' .. sk.name)
+function GmNpc:skillLevelShow(player)
+  local sess = self.sess[player] or self:sessReset(player)
+  local list = {}
+  for lv = 1, 10 do list[lv] = { lv = lv } end
+  sess.skLevels = list
+  self:renderPage(player, SEQ_SKILL_LEVEL, '选择等级', list, function(e) return 'Lv' .. e.lv end)
+end
+
+function GmNpc:skillApply(player, lv)
+  local sk = self.sess[player] and self.sess[player].skSkill
+  if not sk then return end
+  if Char.HaveSkill(player, sk.id) < 0 then Char.AddSkill(player, sk.id, 0, 0) end
+  local slot = Char.HaveSkill(player, sk.id)
+  if slot and slot >= 0 then
+    Char.SetSkillLevel(player, slot, lv, 0)
+    NLG.UpChar(player)
+    msg(player, '已学技能: ' .. sk.name .. ' Lv' .. lv)
   else
     msg(player, '学习失败(技能栏已满?): ' .. sk.name)
   end
@@ -705,7 +718,16 @@ function GmNpc:onPickerWindow(npc, player, seq, select, data)
       local row = tonumber(data)
       if row and s and s.skills then
         local sk = s.skills[(s.page - 1) * PAGE_SIZE + row]
-        if sk then self:skillGive(player, sk) end
+        if sk then s.skSkill = sk; s.page = 1; self:skillLevelShow(player) end
+      end
+    end
+    return true
+  elseif seq == SEQ_SKILL_LEVEL then
+    if not self:pageNav(player, select, function() self:skillLevelShow(player) end) then
+      local row = tonumber(data)
+      if row and s and s.skLevels then
+        local e = s.skLevels[(s.page - 1) * PAGE_SIZE + row]
+        if e then self:skillApply(player, e.lv) end
       end
     end
     return true
