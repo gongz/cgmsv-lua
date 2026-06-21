@@ -136,6 +136,8 @@ local commands = {
 
   { label = '一键装备 QuickGear', hint = '选等级给整套装备', run = function(p) end },
 
+  { label = '引擎GM命令 EngineCmds', hint = '内置命令参考', run = function(p) end },
+
   -- ===== GM administration =====
   { label = '设为GM AddGM', hint = '账号CDK', run = function(p, a)
     local k = a[1]; local ad = getModule('admin')
@@ -268,6 +270,7 @@ function GmNpc:showCommandInput(npc, player, index)
   if string.find(c.label, 'SaveWarp', 1, true) then return self:saveWarpStart(player) end
   if string.find(c.label, 'GoWarp', 1, true) then return self:goWarpStart(player) end
   if string.find(c.label, 'QuickGear', 1, true) then return self:quickGearStart(player) end
+  if string.find(c.label, 'EngineCmds', 1, true) then return self:engineCmdsStart(player) end
   NLG.ShowWindowTalked(player, npc, CONST.窗口_输入框, CONST.BUTTON_确定关闭, SEQ_IN_BASE + index,
     '\\n' .. c.label .. '\\n请输入: ' .. c.hint)
 end
@@ -314,6 +317,69 @@ local WARP_FILE       = 'gm_warp.txt'
 local SEQ_QG_JOB      = 9300
 local SEQ_QG_LEVEL    = 9301
 local SEQ_QG_ARMOR    = 9302
+local SEQ_ENGCMD      = 9400
+-- Engine built-in GM commands (from cgmsv.exe). Invoked via chat as [nr <cmd> <args>].
+-- Reference only; descriptions/args are best-guess from RE and may need adjustment.
+local ENGINE_CMDS = {
+  { c = 'lvup',         d = 'level up +1' },
+  { c = 'level',        d = 'set level <n>' },
+  { c = 'gold',         d = 'gold <n>' },
+  { c = 'hp',           d = 'set HP <n>' },
+  { c = 'fp',           d = 'set FP <n>' },
+  { c = 'vital',        d = 'vital <n>' },
+  { c = 'str',          d = 'str <n>' },
+  { c = 'quick',        d = 'quick <n>' },
+  { c = 'tgh',          d = 'tough <n>' },
+  { c = 'magic',        d = 'magic <n>' },
+  { c = 'heal',         d = 'full heal' },
+  { c = 'setinjury',    d = 'injury <n>' },
+  { c = 'int',          d = 'reset/init points' },
+  { c = 'additem',      d = 'item <id> [n]' },
+  { c = 'delitem',      d = 'del item <id> [n]' },
+  { c = 'iteminfo',     d = 'item info' },
+  { c = 'addautoitem',  d = 'add auto item' },
+  { c = 'setdur',       d = 'durability <n>' },
+  { c = 'addranditem',  d = 'random item' },
+  { c = 'addrecipeitem',d = 'recipe item' },
+  { c = 'setskill',     d = 'learn skill <id>' },
+  { c = 'setskilllv',   d = 'skill lv <slot> <lv>' },
+  { c = 'setskillexp',  d = 'skill exp <slot> <exp>' },
+  { c = 'skillinfo',    d = 'skill info' },
+  { c = 'techinfo',     d = 'tech info' },
+  { c = 'usetech',      d = 'use tech <id>' },
+  { c = 'setpettech',   d = 'set pet tech' },
+  { c = 'setjob',       d = 'job <id>' },
+  { c = 'checktitle',   d = 'check titles' },
+  { c = 'makepet',      d = 'make pet <id>' },
+  { c = 'putpet',       d = 'put pet' },
+  { c = 'petinfo',      d = 'pet info' },
+  { c = 'makerandpet',  d = 'random pet' },
+  { c = 'setrecipeflg', d = 'recipe flag' },
+  { c = 'inforecipe',   d = 'recipe info' },
+  { c = 'setleaklv',    d = 'secret lv' },
+  { c = 'setallleaklv', d = 'all secret lv' },
+  { c = 'makedungeon',  d = 'make dungeon' },
+  { c = 'deldungeon',   d = 'del dungeon' },
+  { c = 'stopdungeon',  d = 'stop dungeon' },
+  { c = 'deldungeonflg',d = 'del dungeon flag' },
+  { c = 'dungeonlimit', d = 'dungeon limit' },
+  { c = 'battlemap',    d = 'battle map' },
+  { c = 'shortwarp',    d = 'short warp <x> <y>' },
+  { c = 'warp',         d = 'warp <map> <x> <y>' },
+  { c = 'joinparty',    d = 'join party' },
+  { c = 'dischargeparty',d= 'leave party' },
+  { c = 'battlemsg',    d = 'battle msg' },
+  { c = 'warpsearch',   d = 'search warp' },
+  { c = 'npcsearch',    d = 'search npc' },
+  { c = 'boxsearch',    d = 'search box' },
+  { c = 'filladdressbook', d = 'fill addrbook' },
+  { c = 'sysinfo',      d = 'system info' },
+  { c = 'info',         d = 'info' },
+  { c = 'metamo',       d = 'morph' },
+  { c = 'announce',     d = 'announce <msg>' },
+  { c = 'save',         d = 'save char' },
+  { c = 'logclose',     d = 'close log' },
+}
 -- weapon-class choices -> weapon item type (col15)
 local QG_JOBS = {
   { name = '剑 Sword', w = 0 }, { name = '斧 Axe', w = 1 }, { name = '枪 Spear', w = 2 },
@@ -867,6 +933,15 @@ function GmNpc:quickGearGive(player, L)
   msg(player, '已给予装备 x' .. n)
 end
 
+-- Engine GM command reference (read-only list) ------------------------------
+function GmNpc:engineCmdsStart(player)
+  self:sessReset(player); self:engineCmdsShow(player)
+end
+
+function GmNpc:engineCmdsShow(player)
+  self:renderPage(player, SEQ_ENGCMD, '引擎GM命令 [nr ...]', ENGINE_CMDS, function(e) return e.c .. ' - ' .. e.d end)
+end
+
 function GmNpc:onPickerWindow(npc, player, seq, select, data)
   local s = self.sess and self.sess[player]
   if seq == SEQ_ITEM_MENU then
@@ -913,6 +988,15 @@ function GmNpc:onPickerWindow(npc, player, seq, select, data)
       if row and s then
         local a = QG_ARMOR[(s.page - 1) * PAGE_SIZE + row]
         if a then s.qgA = a; s.page = 1; self:qgLevelShow(player) end
+      end
+    end
+    return true
+  elseif seq == SEQ_ENGCMD then
+    if not self:pageNav(player, select, function() self:engineCmdsShow(player) end) then
+      local row = tonumber(data)
+      if row and s then
+        local e = ENGINE_CMDS[(s.page - 1) * PAGE_SIZE + row]
+        if e then msg(player, '[nr ' .. e.c .. '] ' .. e.d) end
       end
     end
     return true
