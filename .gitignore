@@ -7,3 +7,7 @@ t.lua
 data/cgmsv.exe
 *.exe
 *.dll
+
+# macOS junk
+.DS_Store
+**/.DS_Store
