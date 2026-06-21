@@ -115,25 +115,19 @@ local commands = {
     msg(p, string.format('声望 %s%d', n >= 0 and '+' or '', n))
   end },
 
-  { label = '移动两格 Step', hint = 'n/s/e/w (北南东西)', run = function(p, a)
-    local d = string.lower(tostring(a[1] or ''))
-    local dx, dy = 0, 0
-    if d == 'n' or d == '北' then dy = -2
-    elseif d == 's' or d == '南' then dy = 2
-    elseif d == 'e' or d == '东' then dx = 2
-    elseif d == 'w' or d == '西' then dx = -2
-    else return msg(p, '方向: n/s/e/w') end
-    local mt = Char.GetData(p, CONST.CHAR_地图类型)
-    local mp = Char.GetData(p, CONST.CHAR_地图)
-    local x = Char.GetData(p, CONST.CHAR_X) + dx
-    local y = Char.GetData(p, CONST.CHAR_Y) + dy
-    Char.Warp(p, mt, mp, x, y)
-    msg(p, string.format('移动到 (%d,%d)', x, y))
-  end },
+  { label = '移动 Step', hint = '选格数+方向', run = function(p) end },
 
   { label = '转职 GetJob', hint = '从列表选择职业', run = function(p) end },
 
   { label = '宠物技能 PetSkill', hint = '选宠物-选技能-选栏位', run = function(p) end },
+
+  { label = '当前地图 GetMap', hint = '(无参数)', run = function(p)
+    local mt = Char.GetData(p, CONST.CHAR_地图类型)
+    local mp = Char.GetData(p, CONST.CHAR_地图)
+    local x = Char.GetData(p, CONST.CHAR_X)
+    local y = Char.GetData(p, CONST.CHAR_Y)
+    msg(p, string.format('地图 %d (type %d) @ (%d,%d)', mp, mt, x, y))
+  end },
 
   -- ===== GM administration =====
   { label = '设为GM AddGM', hint = '账号CDK', run = function(p, a)
@@ -262,6 +256,7 @@ function GmNpc:showCommandInput(npc, player, index)
   if string.find(c.label, 'AddSkill', 1, true) then return self:skillMenuShow(player) end
   if string.find(c.label, 'GetJob', 1, true) then return self:jobMenuShow(player) end
   if string.find(c.label, 'PetSkill', 1, true) then return self:petSkillStart(player) end
+  if string.find(c.label, 'Step', 1, true) then return self:stepStart(player) end
   NLG.ShowWindowTalked(player, npc, CONST.窗口_输入框, CONST.BUTTON_确定关闭, SEQ_IN_BASE + index,
     '\\n' .. c.label .. '\\n请输入: ' .. c.hint)
 end
@@ -297,6 +292,8 @@ local SEQ_PETSK_PET    = 8000
 local SEQ_PETSK_SEARCH = 8001
 local SEQ_PETSK_SKILL  = 8002
 local SEQ_PETSK_SLOT   = 8003
+local SEQ_STEP_DIST   = 9000
+local SEQ_STEP_DIR    = 9001
 
 -- race code -> display name (server-owner mapping, positional 0-9)
 local RACE_NAMES = {
@@ -464,7 +461,7 @@ end
 
 function GmNpc:petListShow(player)
   local s = self.sess[player]; if not s or not s.pets then return end
-  self:renderPage(player, SEQ_PET_LIST, '选择宠物', s.pets, function(p) return p.name end)
+  self:renderPage(player, SEQ_PET_LIST, '选择宠物', s.pets, function(p) return p.name .. ' #' .. p.id end)
 end
 
 function GmNpc:petGive(player, p)
@@ -607,6 +604,33 @@ function GmNpc:petSkillApply(player, slot)
   end
 end
 
+-- STEP picker: distance (2-5) -> direction -> warp --------------------------
+function GmNpc:stepStart(player)
+  self:sessReset(player)
+  local m = self:NPC_buildSelectionText('移动几格', { '2', '3', '4', '5' })
+  NLG.ShowWindowTalked(player, self.npc, CONST.窗口_选择框, CONST.BUTTON_关闭, SEQ_STEP_DIST, m)
+end
+
+function GmNpc:stepDirShow(player)
+  local n = (self.sess[player] and self.sess[player].stepDist) or 2
+  local m = self:NPC_buildSelectionText('选择方向 (' .. n .. '格)', { '北 N', '南 S', '东 E', '西 W' })
+  NLG.ShowWindowTalked(player, self.npc, CONST.窗口_选择框, CONST.BUTTON_关闭, SEQ_STEP_DIR, m)
+end
+
+function GmNpc:stepApply(player, dirRow)
+  local sess = self.sess[player]; if not sess then return end
+  local n = sess.stepDist or 2
+  local dx, dy = 0, 0
+  if dirRow == 1 then dy = -n elseif dirRow == 2 then dy = n
+  elseif dirRow == 3 then dx = n elseif dirRow == 4 then dx = -n else return end
+  local mt = Char.GetData(player, CONST.CHAR_地图类型)
+  local mp = Char.GetData(player, CONST.CHAR_地图)
+  local x = Char.GetData(player, CONST.CHAR_X) + dx
+  local y = Char.GetData(player, CONST.CHAR_Y) + dy
+  Char.Warp(player, mt, mp, x, y)
+  msg(player, string.format('移动到 (%d,%d) 地图%d', x, y, mp))
+end
+
 function GmNpc:onPickerWindow(npc, player, seq, select, data)
   local s = self.sess and self.sess[player]
   if seq == SEQ_ITEM_MENU then
@@ -710,6 +734,18 @@ function GmNpc:onPickerWindow(npc, player, seq, select, data)
         local e = s.psSlotList[(s.page - 1) * PAGE_SIZE + row]
         if e then self:petSkillApply(player, e.slot) end
       end
+    end
+    return true
+  elseif seq == SEQ_STEP_DIST then
+    if select == 0 then
+      local row = tonumber(data)
+      if row and s then s.stepDist = row + 1; self:stepDirShow(player) end
+    end
+    return true
+  elseif seq == SEQ_STEP_DIR then
+    if select == 0 then
+      local row = tonumber(data)
+      if row then self:stepApply(player, row) end
     end
     return true
   end
