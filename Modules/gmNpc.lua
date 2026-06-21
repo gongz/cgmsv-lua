@@ -292,6 +292,7 @@ local SEQ_PETSK_PET    = 8000
 local SEQ_PETSK_SEARCH = 8001
 local SEQ_PETSK_SKILL  = 8002
 local SEQ_PETSK_SLOT   = 8003
+local SEQ_PETSK_LEVEL  = 8004
 local SEQ_STEP_DIST   = 9000
 local SEQ_STEP_DIR    = 9001
 
@@ -360,11 +361,20 @@ function GmNpc:ensureData()
     local nm, jid = t[1], tonumber(t[3])
     if nm and nm ~= '' and jid then self.jobs[#self.jobs + 1] = { id = jid, name = nm } end
   end)
-  self.techs, self.techName = {}, {}
+  self.techName = {}
+  local tgroups, torder = {}, {}
   each('data/tech.txt', function(t)
     local nm, tid = t[1], tonumber(t[4])
-    if nm and nm ~= '' and tid then self.techs[#self.techs + 1] = { id = tid, name = nm }; self.techName[tid] = nm end
+    if nm and nm ~= '' and tid then
+      self.techName[tid] = nm
+      local base, lv = string.match(nm, '^(.-)%s*LV(%d+)$')
+      if not base then base = nm; lv = 0 else lv = tonumber(lv) end
+      local gr = tgroups[base]
+      if not gr then gr = { base = base, variants = {} }; tgroups[base] = gr; torder[#torder + 1] = gr end
+      gr.variants[#gr.variants + 1] = { id = tid, lv = lv, name = nm }
+    end
   end)
+  self.techBases = torder
   self.dataReady = true
   self:logInfo('picker data', #self.items, 'items', #self.cats, 'cats', #self.raceList, 'races')
 end
@@ -565,18 +575,23 @@ end
 function GmNpc:petSkillSearchRun(player, kw)
   kw = tostring(kw or '')
   local res = {}
-  for _, tc in ipairs(self.techs) do
-    if kw == '' or string.find(tc.name, kw, 1, true) then res[#res + 1] = tc end
+  for _, gr in ipairs(self.techBases) do
+    if kw == '' or string.find(gr.base, kw, 1, true) then res[#res + 1] = gr end
   end
   local sess = self.sess[player] or self:sessReset(player)
-  sess.psTechList = res; sess.page = 1
+  sess.psBaseList = res; sess.page = 1
   if #res == 0 then return msg(player, '没有找到匹配的技能') end
-  self:petSkillListShow(player)
+  self:petSkillBaseShow(player)
 end
 
-function GmNpc:petSkillListShow(player)
-  local sess = self.sess[player]; if not sess or not sess.psTechList then return end
-  self:renderPage(player, SEQ_PETSK_SKILL, '选择技能', sess.psTechList, function(tc) return tc.name end)
+function GmNpc:petSkillBaseShow(player)
+  local sess = self.sess[player]; if not sess or not sess.psBaseList then return end
+  self:renderPage(player, SEQ_PETSK_SKILL, '选择技能', sess.psBaseList, function(gr) return gr.base .. ' (' .. #gr.variants .. ')' end)
+end
+
+function GmNpc:petSkillLevelShow(player)
+  local sess = self.sess[player]; if not sess or not sess.psVariants then return end
+  self:renderPage(player, SEQ_PETSK_LEVEL, '选择等级', sess.psVariants, function(v) return v.name end)
 end
 
 function GmNpc:petSkillSlotShow(player)
@@ -719,11 +734,20 @@ function GmNpc:onPickerWindow(npc, player, seq, select, data)
     if select == CONST.BUTTON_确定 then self:petSkillSearchRun(player, data) end
     return true
   elseif seq == SEQ_PETSK_SKILL then
-    if not self:pageNav(player, select, function() self:petSkillListShow(player) end) then
+    if not self:pageNav(player, select, function() self:petSkillBaseShow(player) end) then
       local row = tonumber(data)
-      if row and s and s.psTechList then
-        local tc = s.psTechList[(s.page - 1) * PAGE_SIZE + row]
-        if tc then s.psTechId = tc.id; s.psTechName = tc.name; self:petSkillSlotShow(player) end
+      if row and s and s.psBaseList then
+        local gr = s.psBaseList[(s.page - 1) * PAGE_SIZE + row]
+        if gr then s.psVariants = gr.variants; s.page = 1; self:petSkillLevelShow(player) end
+      end
+    end
+    return true
+  elseif seq == SEQ_PETSK_LEVEL then
+    if not self:pageNav(player, select, function() self:petSkillLevelShow(player) end) then
+      local row = tonumber(data)
+      if row and s and s.psVariants then
+        local v = s.psVariants[(s.page - 1) * PAGE_SIZE + row]
+        if v then s.psTechId = v.id; s.psTechName = v.name; self:petSkillSlotShow(player) end
       end
     end
     return true
