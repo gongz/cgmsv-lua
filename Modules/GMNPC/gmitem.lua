@@ -46,6 +46,9 @@ function GmItem:onLoad()
 		if text == COMMAND then self:toggle(); return 1 end
 		return true
 	end)
+	-- Shift+G hotkey (both press orders, like map.lua's Shift+M)
+	self:OnKeyPress(71, { 16 }, 1, function() self:toggle() end)  -- G while Shift held
+	self:OnKeyPress(16, { 71 }, 1, function() self:toggle() end)  -- Shift while G held
 end
 
 function GmItem:toggle()
