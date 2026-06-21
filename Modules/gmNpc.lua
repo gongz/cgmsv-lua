@@ -313,20 +313,20 @@ local SEQ_WARP_LIST   = 9201
 local WARP_FILE       = 'gm_warp.txt'
 local SEQ_QG_JOB      = 9300
 local SEQ_QG_LEVEL    = 9301
+local SEQ_QG_ARMOR    = 9302
 -- weapon-class choices -> weapon item type (col15)
 local QG_JOBS = {
   { name = '剑 Sword', w = 0 }, { name = '斧 Axe', w = 1 }, { name = '枪 Spear', w = 2 },
   { name = '杖 Staff', w = 3 }, { name = '弓 Bow', w = 4 }, { name = '小刀 Knife', w = 5 },
   { name = '回力镖 Boomerang', w = 6 },
 }
--- job-independent armor slots -> item types (col15)
-local ARMOR_SLOTS = {
-  { name = '身体', types = { [10]=1,[11]=1 } },
-  { name = '头部', types = { [8]=1,[55]=1 } },
-  { name = '盾',   types = { [7]=1 } },
-  { name = '脚',   types = { [13]=1 } },
-  { name = '饰品', types = { [17]=1,[18]=1,[21]=1 } },
+-- armor classes -> head/body/feet item types (col15); shield only for heavy
+local QG_ARMOR = {
+  { name = '重甲 Heavy', head = 8, body = 10, feet = 13, shield = 7 },
+  { name = '轻甲 Light', head = 9, body = 11, feet = 14 },
+  { name = '法袍 Magic', head = 9, body = 12, feet = 14 },
 }
+local QG_ACC = { [17] = 1, [18] = 1 }  -- necklace / ring
 
 -- race code -> display name (server-owner mapping, positional 0-9)
 local RACE_NAMES = {
@@ -820,7 +820,11 @@ function GmNpc:quickGearStart(player)
 end
 
 function GmNpc:qgJobShow(player)
-  self:renderPage(player, SEQ_QG_JOB, '选择职业/武器', QG_JOBS, function(j) return j.name end)
+  self:renderPage(player, SEQ_QG_JOB, '选择武器', QG_JOBS, function(j) return j.name end)
+end
+
+function GmNpc:qgArmorShow(player)
+  self:renderPage(player, SEQ_QG_ARMOR, '选择防具类型', QG_ARMOR, function(a) return a.name end)
 end
 
 function GmNpc:qgLevelShow(player)
@@ -829,14 +833,22 @@ end
 
 function GmNpc:quickGearGive(player, L)
   local sess = self.sess[player]
-  local wtype = sess and sess.qgW
-  local weapon, armorBest = nil, {}
+  local a = sess and sess.qgA
+  if not a then return end
+  local want = {
+    { t = sess.qgW, label = '武器' },
+    { t = a.head, label = '头部' },
+    { t = a.body, label = '身体' },
+    { t = a.feet, label = '脚' },
+  }
+  if a.shield then want[#want + 1] = { t = a.shield, label = '盾' } end
+  local best, accBest = {}, nil
   for _, it in ipairs(self.items) do
     if it.real and it.lv and it.lv <= L and it.typ then
-      if wtype and it.typ == wtype and (not weapon or it.lv > weapon.lv) then weapon = it end
-      for si, slot in ipairs(ARMOR_SLOTS) do
-        if slot.types[it.typ] and (not armorBest[si] or it.lv > armorBest[si].lv) then armorBest[si] = it end
+      for i, wnt in ipairs(want) do
+        if it.typ == wnt.t and (not best[i] or it.lv > best[i].lv) then best[i] = it end
       end
+      if QG_ACC[it.typ] and (not accBest or it.lv > accBest.lv) then accBest = it end
     end
   end
   local n = 0
@@ -850,8 +862,8 @@ function GmNpc:quickGearGive(player, L)
     n = n + 1
     msg(player, label .. ': ' .. it.name .. ' Lv' .. it.lv)
   end
-  give(weapon, '武器')
-  for si, slot in ipairs(ARMOR_SLOTS) do give(armorBest[si], slot.name) end
+  for i, wnt in ipairs(want) do give(best[i], wnt.label) end
+  give(accBest, '饰品')
   msg(player, '已给予装备 x' .. n)
 end
 
@@ -891,7 +903,16 @@ function GmNpc:onPickerWindow(npc, player, seq, select, data)
       local row = tonumber(data)
       if row and s then
         local j = QG_JOBS[(s.page - 1) * PAGE_SIZE + row]
-        if j then s.qgW = j.w; s.page = 1; self:qgLevelShow(player) end
+        if j then s.qgW = j.w; s.page = 1; self:qgArmorShow(player) end
+      end
+    end
+    return true
+  elseif seq == SEQ_QG_ARMOR then
+    if not self:pageNav(player, select, function() self:qgArmorShow(player) end) then
+      local row = tonumber(data)
+      if row and s then
+        local a = QG_ARMOR[(s.page - 1) * PAGE_SIZE + row]
+        if a then s.qgA = a; s.page = 1; self:qgLevelShow(player) end
       end
     end
     return true
