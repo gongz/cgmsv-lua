@@ -282,6 +282,7 @@ local SEQ_ITEM_SEARCH = 4001
 local SEQ_ITEM_CATS   = 4002
 local SEQ_ITEM_LIST   = 4003
 local SEQ_ITEM_QTY    = 4004
+local SEQ_ITEM_LEVELS = 4005
 local SEQ_PET_RACES   = 5000
 local SEQ_PET_LIST    = 5001
 local SEQ_SKILL_SEARCH = 6000
@@ -320,7 +321,9 @@ function GmNpc:ensureData()
   each('data/itemset.txt', function(t)
     local id, name, cat, lv = tonumber(t[12]), t[2], t[1], tonumber(t[24])
     if id and name and name ~= '' then
-      local it = { id = id, name = name, lv = lv }
+      local real = (t[3] and t[3] ~= '') or (t[6] and t[6] ~= '')
+      if not real then for i = 32, 49 do local v = tonumber(t[i]); if v and v > 0 then real = true; break end end end
+      local it = { id = id, name = name, lv = lv, real = real }
       self.items[#self.items + 1] = it
       if cat and cat ~= '' then
         local grp = catMap[cat]
@@ -330,6 +333,16 @@ function GmNpc:ensureData()
     end
   end)
   table.sort(self.cats, function(a, b) return #a.items > #b.items end)
+  local lvmap, lvorder = {}, {}
+  for _, it in ipairs(self.items) do
+    if it.real and it.lv then
+      local grp = lvmap[it.lv]
+      if not grp then grp = { lv = it.lv, items = {} }; lvmap[it.lv] = grp; lvorder[#lvorder + 1] = grp end
+      grp.items[#grp.items + 1] = it
+    end
+  end
+  table.sort(lvorder, function(a, b) return a.lv < b.lv end)
+  self.itemLevels = lvorder
   local baseName, baseRace = {}, {}
   each('data/enemybase.txt', function(t)
     local bid = t[2]
@@ -410,7 +423,7 @@ end
 -- ITEM picker -----------------------------------------------------------------
 function GmNpc:itemMenuShow(player)
   self:ensureData(); self:sessReset(player)
-  local m = self:NPC_buildSelectionText('给予道具', { '按名称搜索', '按分类浏览' })
+  local m = self:NPC_buildSelectionText('给予道具', { '按名称搜索', '按分类浏览', '按等级浏览' })
   NLG.ShowWindowTalked(player, self.npc, CONST.窗口_选择框, CONST.BUTTON_关闭, SEQ_ITEM_MENU, m)
 end
 
@@ -646,13 +659,18 @@ function GmNpc:stepApply(player, dirRow)
   msg(player, string.format('移动到 (%d,%d) 地图%d', x, y, mp))
 end
 
+function GmNpc:itemLevelsShow(player)
+  self:renderPage(player, SEQ_ITEM_LEVELS, '选择等级', self.itemLevels, function(gr) return 'Lv' .. gr.lv .. ' (' .. #gr.items .. ')' end)
+end
+
 function GmNpc:onPickerWindow(npc, player, seq, select, data)
   local s = self.sess and self.sess[player]
   if seq == SEQ_ITEM_MENU then
     if select == 0 then
       local row = tonumber(data)
       if row == 1 then self:itemSearchPrompt(player)
-      elseif row == 2 then self:itemCatsShow(player) end
+      elseif row == 2 then self:itemCatsShow(player)
+      elseif row == 3 then self:itemLevelsShow(player) end
     end
     return true
   elseif seq == SEQ_ITEM_SEARCH then
@@ -664,6 +682,15 @@ function GmNpc:onPickerWindow(npc, player, seq, select, data)
       if row and s then
         local cat = self.cats[(s.page - 1) * PAGE_SIZE + row]
         if cat then s.items = cat.items; s.page = 1; self:itemListShow(player) end
+      end
+    end
+    return true
+  elseif seq == SEQ_ITEM_LEVELS then
+    if not self:pageNav(player, select, function() self:itemLevelsShow(player) end) then
+      local row = tonumber(data)
+      if row and s then
+        local grp = self.itemLevels[(s.page - 1) * PAGE_SIZE + row]
+        if grp then s.items = grp.items; s.page = 1; self:itemListShow(player) end
       end
     end
     return true
