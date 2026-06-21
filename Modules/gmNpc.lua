@@ -129,6 +129,8 @@ local commands = {
     msg(p, string.format('地图 %d (type %d) @ (%d,%d)', mp, mt, x, y))
   end },
 
+  { label = '丢弃道具 Trash', hint = '点列表删除', run = function(p) end },
+
   -- ===== GM administration =====
   { label = '设为GM AddGM', hint = '账号CDK', run = function(p, a)
     local k = a[1]; local ad = getModule('admin')
@@ -257,6 +259,7 @@ function GmNpc:showCommandInput(npc, player, index)
   if string.find(c.label, 'GetJob', 1, true) then return self:jobMenuShow(player) end
   if string.find(c.label, 'PetSkill', 1, true) then return self:petSkillStart(player) end
   if string.find(c.label, 'Step', 1, true) then return self:stepStart(player) end
+  if string.find(c.label, 'Trash', 1, true) then return self:trashStart(player) end
   NLG.ShowWindowTalked(player, npc, CONST.窗口_输入框, CONST.BUTTON_确定关闭, SEQ_IN_BASE + index,
     '\\n' .. c.label .. '\\n请输入: ' .. c.hint)
 end
@@ -296,6 +299,7 @@ local SEQ_PETSK_SLOT   = 8003
 local SEQ_PETSK_LEVEL  = 8004
 local SEQ_STEP_DIST   = 9000
 local SEQ_STEP_DIR    = 9001
+local SEQ_TRASH       = 9100
 
 -- race code -> display name (server-owner mapping, positional 0-9)
 local RACE_NAMES = {
@@ -667,6 +671,27 @@ function GmNpc:itemLevelsShow(player)
   self:renderPage(player, SEQ_ITEM_LEVELS, '选择等级', self.itemLevels, function(gr) return 'Lv' .. gr.lv .. ' (' .. #gr.items .. ')' end)
 end
 
+-- TRASH: list bag items (slots 8-27) -> click to delete -> refresh -----------
+function GmNpc:trashStart(player)
+  self:sessReset(player); self:trashListShow(player)
+end
+
+function GmNpc:trashListShow(player)
+  local sess = self.sess[player] or self:sessReset(player)
+  local list = {}
+  for slot = 8, 27 do
+    local ii = Char.GetItemIndex(player, slot)
+    if ii and ii >= 0 then
+      local id = tonumber(Item.GetData(ii, CONST.道具_ID))
+      local nm = (id and Item.GetNameFromNumber(id)) or ('#' .. tostring(id))
+      list[#list + 1] = { slot = slot, name = nm }
+    end
+  end
+  sess.trashList = list
+  if #list == 0 then return msg(player, '背包是空的') end
+  self:renderPage(player, SEQ_TRASH, '丢弃道具(点击删除)', list, function(e) return e.name end)
+end
+
 function GmNpc:onPickerWindow(npc, player, seq, select, data)
   local s = self.sess and self.sess[player]
   if seq == SEQ_ITEM_MENU then
@@ -801,6 +826,15 @@ function GmNpc:onPickerWindow(npc, player, seq, select, data)
     if select == 0 then
       local row = tonumber(data)
       if row then self:stepApply(player, row) end
+    end
+    return true
+  elseif seq == SEQ_TRASH then
+    if not self:pageNav(player, select, function() self:trashListShow(player) end) then
+      local row = tonumber(data)
+      if row and s and s.trashList then
+        local e = s.trashList[(s.page - 1) * PAGE_SIZE + row]
+        if e then Char.DelItemBySlot(player, e.slot); msg(player, '已丢弃: ' .. e.name); self:trashListShow(player) end
+      end
     end
     return true
   end
