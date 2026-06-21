@@ -1215,6 +1215,21 @@ function GmNpc:onLoad()
   end)
 end
 
+-- UI panel helper: return up to 200 matched items as 'name|id|lv|...' packet
+function GmNpc:uiItemSearch(kw)
+  self:ensureData()
+  kw = tostring(kw or '')
+  local out, n = {}, 0
+  for _, it in ipairs(self.items) do
+    if kw == '' or string.find(it.name, kw, 1, true) then
+      out[#out + 1] = it.name .. '|' .. it.id .. '|' .. (it.lv or 0)
+      n = n + 1
+      if n >= 200 then break end
+    end
+  end
+  return table.concat(out, '|')
+end
+
 function GmNpc:onUnload()
   self:logInfo('unload')
 end
