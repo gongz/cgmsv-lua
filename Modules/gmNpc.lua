@@ -134,6 +134,8 @@ local commands = {
   { label = '保存当前为传送点 SaveWarp', hint = '保存当前位置', run = function(p) end },
   { label = '传送到保存点 GoWarp', hint = '从已保存传送', run = function(p) end },
 
+  { label = '一键装备 QuickGear', hint = '选等级给整套装备', run = function(p) end },
+
   -- ===== GM administration =====
   { label = '设为GM AddGM', hint = '账号CDK', run = function(p, a)
     local k = a[1]; local ad = getModule('admin')
@@ -265,6 +267,7 @@ function GmNpc:showCommandInput(npc, player, index)
   if string.find(c.label, 'Trash', 1, true) then return self:trashStart(player) end
   if string.find(c.label, 'SaveWarp', 1, true) then return self:saveWarpStart(player) end
   if string.find(c.label, 'GoWarp', 1, true) then return self:goWarpStart(player) end
+  if string.find(c.label, 'QuickGear', 1, true) then return self:quickGearStart(player) end
   NLG.ShowWindowTalked(player, npc, CONST.窗口_输入框, CONST.BUTTON_确定关闭, SEQ_IN_BASE + index,
     '\\n' .. c.label .. '\\n请输入: ' .. c.hint)
 end
@@ -308,6 +311,22 @@ local SEQ_TRASH       = 9100
 local SEQ_WARP_NAME   = 9200
 local SEQ_WARP_LIST   = 9201
 local WARP_FILE       = 'gm_warp.txt'
+local SEQ_QG_JOB      = 9300
+local SEQ_QG_LEVEL    = 9301
+-- weapon-class choices -> weapon item type (col15)
+local QG_JOBS = {
+  { name = '剑 Sword', w = 0 }, { name = '斧 Axe', w = 1 }, { name = '枪 Spear', w = 2 },
+  { name = '杖 Staff', w = 3 }, { name = '弓 Bow', w = 4 }, { name = '小刀 Knife', w = 5 },
+  { name = '回力镖 Boomerang', w = 6 },
+}
+-- job-independent armor slots -> item types (col15)
+local ARMOR_SLOTS = {
+  { name = '身体', types = { [10]=1,[11]=1 } },
+  { name = '头部', types = { [8]=1,[55]=1 } },
+  { name = '盾',   types = { [7]=1 } },
+  { name = '脚',   types = { [13]=1 } },
+  { name = '饰品', types = { [17]=1,[18]=1,[21]=1 } },
+}
 
 -- race code -> display name (server-owner mapping, positional 0-9)
 local RACE_NAMES = {
@@ -339,7 +358,7 @@ function GmNpc:ensureData()
         real = false
         for i = 32, 49 do local v = tonumber(t[i]); if v and v > 0 then real = true; break end end
       end
-      local it = { id = id, name = name, lv = lv, real = real }
+      local it = { id = id, name = name, lv = lv, real = real, typ = tonumber(t[15]) }
       self.items[#self.items + 1] = it
       if cat and cat ~= '' then
         local grp = catMap[cat]
@@ -794,6 +813,48 @@ function GmNpc:goWarpShow(player)
   self:renderPage(player, SEQ_WARP_LIST, '传送列表', self.warps, function(w) return w.name .. ' (' .. w.map .. ')' end)
 end
 
+-- QUICK GEAR: pick a level -> give best real item of each equip slot <= level --
+function GmNpc:quickGearStart(player)
+  self:ensureData(); self:sessReset(player)
+  self:qgJobShow(player)
+end
+
+function GmNpc:qgJobShow(player)
+  self:renderPage(player, SEQ_QG_JOB, '选择职业/武器', QG_JOBS, function(j) return j.name end)
+end
+
+function GmNpc:qgLevelShow(player)
+  self:renderPage(player, SEQ_QG_LEVEL, '选择装备等级', self.itemLevels, function(gr) return 'Lv' .. gr.lv .. ' (' .. #gr.items .. ')' end)
+end
+
+function GmNpc:quickGearGive(player, L)
+  local sess = self.sess[player]
+  local wtype = sess and sess.qgW
+  local weapon, armorBest = nil, {}
+  for _, it in ipairs(self.items) do
+    if it.real and it.lv and it.lv <= L and it.typ then
+      if wtype and it.typ == wtype and (not weapon or it.lv > weapon.lv) then weapon = it end
+      for si, slot in ipairs(ARMOR_SLOTS) do
+        if slot.types[it.typ] and (not armorBest[si] or it.lv > armorBest[si].lv) then armorBest[si] = it end
+      end
+    end
+  end
+  local n = 0
+  local function give(it, label)
+    if not it then return end
+    local idx = Char.GiveItem(player, it.id, 1, true)
+    if idx and idx >= 0 then
+      Item.SetData(idx, CONST.道具_已鉴定, 1)
+      Item.UpItem(player, Char.GetItemSlot(player, idx))
+    end
+    n = n + 1
+    msg(player, label .. ': ' .. it.name .. ' Lv' .. it.lv)
+  end
+  give(weapon, '武器')
+  for si, slot in ipairs(ARMOR_SLOTS) do give(armorBest[si], slot.name) end
+  msg(player, '已给予装备 x' .. n)
+end
+
 function GmNpc:onPickerWindow(npc, player, seq, select, data)
   local s = self.sess and self.sess[player]
   if seq == SEQ_ITEM_MENU then
@@ -822,6 +883,24 @@ function GmNpc:onPickerWindow(npc, player, seq, select, data)
       if row and s then
         local grp = self.itemLevels[(s.page - 1) * PAGE_SIZE + row]
         if grp then s.items = grp.items; s.page = 1; self:itemListShow(player) end
+      end
+    end
+    return true
+  elseif seq == SEQ_QG_JOB then
+    if not self:pageNav(player, select, function() self:qgJobShow(player) end) then
+      local row = tonumber(data)
+      if row and s then
+        local j = QG_JOBS[(s.page - 1) * PAGE_SIZE + row]
+        if j then s.qgW = j.w; s.page = 1; self:qgLevelShow(player) end
+      end
+    end
+    return true
+  elseif seq == SEQ_QG_LEVEL then
+    if not self:pageNav(player, select, function() self:qgLevelShow(player) end) then
+      local row = tonumber(data)
+      if row and s then
+        local grp = self.itemLevels[(s.page - 1) * PAGE_SIZE + row]
+        if grp then self:quickGearGive(player, grp.lv) end
       end
     end
     return true
