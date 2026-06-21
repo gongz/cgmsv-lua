@@ -131,6 +131,9 @@ local commands = {
 
   { label = '丢弃道具 Trash', hint = '点列表删除', run = function(p) end },
 
+  { label = '保存当前为传送点 SaveWarp', hint = '保存当前位置', run = function(p) end },
+  { label = '传送到保存点 GoWarp', hint = '从已保存传送', run = function(p) end },
+
   -- ===== GM administration =====
   { label = '设为GM AddGM', hint = '账号CDK', run = function(p, a)
     local k = a[1]; local ad = getModule('admin')
@@ -260,6 +263,8 @@ function GmNpc:showCommandInput(npc, player, index)
   if string.find(c.label, 'PetSkill', 1, true) then return self:petSkillStart(player) end
   if string.find(c.label, 'Step', 1, true) then return self:stepStart(player) end
   if string.find(c.label, 'Trash', 1, true) then return self:trashStart(player) end
+  if string.find(c.label, 'SaveWarp', 1, true) then return self:saveWarpStart(player) end
+  if string.find(c.label, 'GoWarp', 1, true) then return self:goWarpStart(player) end
   NLG.ShowWindowTalked(player, npc, CONST.窗口_输入框, CONST.BUTTON_确定关闭, SEQ_IN_BASE + index,
     '\\n' .. c.label .. '\\n请输入: ' .. c.hint)
 end
@@ -300,6 +305,9 @@ local SEQ_PETSK_LEVEL  = 8004
 local SEQ_STEP_DIST   = 9000
 local SEQ_STEP_DIR    = 9001
 local SEQ_TRASH       = 9100
+local SEQ_WARP_NAME   = 9200
+local SEQ_WARP_LIST   = 9201
+local WARP_FILE       = 'gm_warp.txt'
 
 -- race code -> display name (server-owner mapping, positional 0-9)
 local RACE_NAMES = {
@@ -692,6 +700,71 @@ function GmNpc:trashListShow(player)
   self:renderPage(player, SEQ_TRASH, '丢弃道具(点击删除)', list, function(e) return e.name end)
 end
 
+-- GM warp points (saved current position; persisted to gm_warp.txt) ----------
+function GmNpc:loadWarps()
+  self.warps = {}
+  local f = io.open(WARP_FILE, 'r')
+  if not f then return end
+  for line in f:lines() do
+    line = string.gsub(line, '\r$', '')
+    if line ~= '' and string.sub(line, 1, 1) ~= '#' then
+      local t = string.split(line, '\t')
+      if t[5] then
+        self.warps[#self.warps + 1] = { name = t[1], mapType = tonumber(t[2]) or 0, map = tonumber(t[3]), x = tonumber(t[4]), y = tonumber(t[5]) }
+      end
+    end
+  end
+  f:close()
+end
+
+function GmNpc:saveWarps()
+  local f = io.open(WARP_FILE, 'w')
+  if not f then return end
+  for _, w in ipairs(self.warps or {}) do
+    f:write(string.format('%s\t%d\t%d\t%d\t%d\n', w.name, w.mapType, w.map, w.x, w.y))
+  end
+  f:close()
+end
+
+function GmNpc:warpsEnsure()
+  if not self.warps then self:loadWarps() end
+end
+
+function GmNpc:saveWarpStart(player)
+  self:warpsEnsure(); self:sessReset(player)
+  local mp = Char.GetData(player, CONST.CHAR_地图)
+  local x = Char.GetData(player, CONST.CHAR_X)
+  local y = Char.GetData(player, CONST.CHAR_Y)
+  NLG.ShowWindowTalked(player, self.npc, CONST.窗口_输入框, CONST.BUTTON_确定关闭, SEQ_WARP_NAME,
+    string.format('\n当前 %d (%d,%d)\n输入传送点名称', mp, x, y))
+end
+
+function GmNpc:saveWarpDo(player, name)
+  self:warpsEnsure()
+  name = tostring(name or '')
+  if name == '' then return msg(player, '需要名称') end
+  local w = {
+    name = name,
+    mapType = tonumber(Char.GetData(player, CONST.CHAR_地图类型)) or 0,
+    map = tonumber(Char.GetData(player, CONST.CHAR_地图)),
+    x = tonumber(Char.GetData(player, CONST.CHAR_X)),
+    y = tonumber(Char.GetData(player, CONST.CHAR_Y)),
+  }
+  self.warps[#self.warps + 1] = w
+  self:saveWarps()
+  msg(player, string.format('已添加传送点: %s (%d %d,%d)', w.name, w.map, w.x, w.y))
+end
+
+function GmNpc:goWarpStart(player)
+  self:warpsEnsure(); self:sessReset(player)
+  if #self.warps == 0 then return msg(player, '没有已保存的传送点') end
+  self:goWarpShow(player)
+end
+
+function GmNpc:goWarpShow(player)
+  self:renderPage(player, SEQ_WARP_LIST, '传送列表', self.warps, function(w) return w.name .. ' (' .. w.map .. ')' end)
+end
+
 function GmNpc:onPickerWindow(npc, player, seq, select, data)
   local s = self.sess and self.sess[player]
   if seq == SEQ_ITEM_MENU then
@@ -834,6 +907,18 @@ function GmNpc:onPickerWindow(npc, player, seq, select, data)
       if row and s and s.trashList then
         local e = s.trashList[(s.page - 1) * PAGE_SIZE + row]
         if e then Char.DelItemBySlot(player, e.slot); msg(player, '已丢弃: ' .. e.name); self:trashListShow(player) end
+      end
+    end
+    return true
+  elseif seq == SEQ_WARP_NAME then
+    if select == CONST.BUTTON_确定 then self:saveWarpDo(player, data) end
+    return true
+  elseif seq == SEQ_WARP_LIST then
+    if not self:pageNav(player, select, function() self:goWarpShow(player) end) then
+      local row = tonumber(data)
+      if row and self.warps then
+        local w = self.warps[(s.page - 1) * PAGE_SIZE + row]
+        if w then Char.Warp(player, w.mapType, w.map, w.x, w.y); msg(player, '已传送: ' .. w.name) end
       end
     end
     return true
