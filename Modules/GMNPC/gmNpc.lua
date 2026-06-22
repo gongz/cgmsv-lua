@@ -236,6 +236,29 @@ local commands = {
 --   1            = root menu
 --   2000 + page  = command list, page N
 --   3000 + index = input box for command #index
+-- ---- menu display order: frequently-used first; QuickGear/DelItem hidden ----
+local DISPLAY_PRIORITY = { 'GiveItem', 'Trash', 'SaveWarp', 'GoWarp', 'GetJob', 'AddSkill', 'PetSkill' }
+local DISPLAY_HIDE = { 'QuickGear', 'DelItem' }
+local displayOrder
+local function getDisplayOrder()
+  if displayOrder then return displayOrder end
+  displayOrder = {}
+  local used = {}
+  for _, kw in ipairs(DISPLAY_PRIORITY) do
+    for i, c in ipairs(commands) do
+      if not used[i] and string.find(c.label, kw, 1, true) then used[i] = true; displayOrder[#displayOrder + 1] = i; break end
+    end
+  end
+  for i, c in ipairs(commands) do
+    if not used[i] then
+      local hide = false
+      for _, kw in ipairs(DISPLAY_HIDE) do if string.find(c.label, kw, 1, true) then hide = true; break end end
+      if not hide then displayOrder[#displayOrder + 1] = i end
+    end
+  end
+  return displayOrder
+end
+
 local SEQ_ROOT     = 1
 local SEQ_CMD_BASE = 2000
 local SEQ_IN_BASE  = 3000
@@ -248,18 +271,20 @@ function GmNpc:showRoot(npc, player)
 end
 
 function GmNpc:showCommands(npc, player, page)
-  local total = math.max(1, math.ceil(#commands / PAGE_SIZE))
+  local order = getDisplayOrder()
+  local total = math.max(1, math.ceil(#order / PAGE_SIZE))
   if page < 1 then page = 1 elseif page > total then page = total end
   local opts, start = {}, (page - 1) * PAGE_SIZE
-  for i = start + 1, math.min(start + PAGE_SIZE, #commands) do
-    opts[#opts + 1] = commands[i].label
+  for i = start + 1, math.min(start + PAGE_SIZE, #order) do
+    opts[#opts + 1] = commands[order[i]].label
   end
   local m = self:NPC_buildSelectionText(string.format('可用命令 第%d/%d页', page, total), opts)
   NLG.ShowWindowTalked(player, npc, CONST.窗口_选择框, pageButtons(page, total), SEQ_CMD_BASE + page, m)
 end
 
 function GmNpc:showCommandInput(npc, player, index)
-  local c = commands[index]; if not c then return end
+  local order = getDisplayOrder()
+  local c = commands[order[index]]; if not c then return end
   if string.find(c.label, 'GiveItem', 1, true) then return self:itemMenuShow(player) end
   if string.find(c.label, 'GivePet', 1, true) then return self:petMenuShow(player) end
   if string.find(c.label, 'AddSkill', 1, true) then return self:skillMenuShow(player) end
@@ -276,7 +301,8 @@ function GmNpc:showCommandInput(npc, player, index)
 end
 
 function GmNpc:runCommand(player, index, data)
-  local c = commands[index]; if not c then return end
+  local order = getDisplayOrder()
+  local c = commands[order[index]]; if not c then return end
   local ok, err = pcall(c.run, player, tokenize(data), data)
   if not ok then msg(player, '执行出错: ' .. tostring(err)) end
 end
