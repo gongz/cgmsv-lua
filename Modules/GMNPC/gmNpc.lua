@@ -447,6 +447,14 @@ local QG_ARMOR = {
 local QG_ACC = { [17] = 1, [18] = 1 }  -- necklace / ring
 
 -- race code -> display name (server-owner mapping, positional 0-9)
+-- item type (itemset col15) -> readable name (for browse-by-type)
+local TYPE_NAMES = {
+  [0]='剑', [1]='斧', [2]='枪', [3]='杖', [4]='弓', [5]='小刀', [6]='回力镖',
+  [7]='盾', [8]='头盔', [9]='帽子', [10]='铠甲', [11]='衣服', [12]='袍',
+  [13]='靴', [14]='鞋', [15]='手镯', [16]='乐器', [17]='项链', [18]='戒指',
+  [20]='耳环', [21]='护身符', [22]='水晶', [23]='料理', [26]='杂物', [55]='头饰',
+}
+
 local RACE_NAMES = {
   [0] = '人形系', [1] = '龙　系', [2] = '不死系', [3] = '飞行系',
   [4] = '昆虫系', [5] = '植物系', [6] = '野兽系', [7] = '特殊系',
@@ -468,7 +476,7 @@ function GmNpc:ensureData()
     f:close()
   end
   each('data/itemset.txt', function(t)
-    local id, name, cat, lv = tonumber(t[12]), t[2], t[1], tonumber(t[24])
+    local id, name, lv, typ = tonumber(t[12]), t[2], tonumber(t[24]), tonumber(t[15])
     if id and name and name ~= '' then
       -- only dummy-filter wearable gear (col19==2 = equipment); keep quest/other items
       local real = true
@@ -476,16 +484,16 @@ function GmNpc:ensureData()
         real = false
         for i = 32, 49 do local v = tonumber(t[i]); if v and v > 0 then real = true; break end end
       end
-      local it = { id = id, name = name, lv = lv, real = real, typ = tonumber(t[15]) }
+      local it = { id = id, name = name, lv = lv, real = real, typ = typ }
       self.items[#self.items + 1] = it
-      if cat and cat ~= '' then
-        local grp = catMap[cat]
-        if not grp then grp = { name = cat, items = {} }; catMap[cat] = grp; self.cats[#self.cats + 1] = grp end
-        grp.items[#grp.items + 1] = it
-      end
+      -- group by item TYPE (col15) so e.g. all axes are together, not split by appearance
+      local key = typ or -1
+      local grp = catMap[key]
+      if not grp then grp = { name = (TYPE_NAMES[key] or ('类型' .. key)), typ = key, items = {} }; catMap[key] = grp; self.cats[#self.cats + 1] = grp end
+      grp.items[#grp.items + 1] = it
     end
   end)
-  table.sort(self.cats, function(a, b) return #a.items > #b.items end)
+  table.sort(self.cats, function(a, b) return a.typ < b.typ end)
   local lvmap, lvorder = {}, {}
   for _, it in ipairs(self.items) do
     if it.real and it.lv then
