@@ -163,7 +163,7 @@ local commands = {
 --   1            = root menu
 --   2000 + page  = command list, page N
 --   3000 + index = input box for command #index
--- ---- menu display order: frequently-used first; QuickGear/DelItem hidden ----
+-- ---- menu display order: frequently-used commands first ----
 local DISPLAY_PRIORITY = { 'GiveItem', 'Trash', 'SaveWarp', 'GoWarp', 'GetJob', 'AddSkill', 'PetSkill' }
 local DISPLAY_HIDE = {}
 local displayOrder
