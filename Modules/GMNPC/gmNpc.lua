@@ -81,16 +81,16 @@ local commands = {
   end },
   { label = '学习技能 AddSkill', hint = 'skillID', run = function(p, a)
     local id = tonumber(a[1]); if not id then return msg(p, '需要 skillID') end
-    Char.AddSkill(p, id, 0, true); msg(p, '已学技能 ' .. id)
+    Char.AddSkill(p, id, 0, 0); msg(p, '已学技能 ' .. id)
   end },
   { label = '设置技能等级 SetSkillLevel', hint = 'slot 等级', run = function(p, a)
     local s, l = tonumber(a[1]), tonumber(a[2]); if not (s and l) then return msg(p, '需要 slot 等级') end
-    Char.SetSkillLevel(p, s, l, true); msg(p, string.format('技能槽%d -> Lv%d', s, l))
+    Char.SetSkillLevel(p, s, l, 1); msg(p, string.format('技能槽%d -> Lv%d', s, l))
   end },
   { label = '传送自己 Warp', hint = 'mapType floor x y', run = function(p, a)
     local mt, fl, x, y = tonumber(a[1]), tonumber(a[2]), tonumber(a[3]), tonumber(a[4])
     if not (mt and fl and x and y) then return msg(p, '需要 mapType floor x y') end
-    Char.Warp(p, mt, fl, x, y); msg(p, string.format('已传送 %d/%d (%d,%d)', mt, fl, x, y))
+    if Char.Warp(p, mt, fl, x, y) then msg(p, string.format('已传送 %d/%d (%d,%d)', mt, fl, x, y)) else msg(p, '传送失败') end
   end },
   { label = '设置数据 SetData', hint = 'dataIndex value', run = function(p, a)
     local d, v = tonumber(a[1]), tonumber(a[2]); if not (d and v) then return msg(p, '需要 dataIndex value') end
@@ -756,8 +756,11 @@ function GmNpc:stepApply(player, dirRow)
   local mp = Char.GetData(player, CONST.CHAR_地图)
   local x = Char.GetData(player, CONST.CHAR_X) + dx
   local y = Char.GetData(player, CONST.CHAR_Y) + dy
-  Char.Warp(player, mt, mp, x, y)
-  msg(player, string.format('移动到 (%d,%d) 地图%d', x, y, mp))
+  if Char.Warp(player, mt, mp, x, y) then
+    msg(player, string.format('移动到 (%d,%d) 地图%d', x, y, mp))
+  else
+    msg(player, '移动失败(不可走?)')
+  end
 end
 
 function GmNpc:itemLevelsShow(player)
