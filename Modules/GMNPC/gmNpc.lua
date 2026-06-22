@@ -322,6 +322,7 @@ local SEQ_ITEM_SEARCH = 4001
 local SEQ_ITEM_CATS   = 4002
 local SEQ_ITEM_LIST   = 4003
 local SEQ_ITEM_QTY    = 4004
+local SEQ_ITEM_CATLEVEL = 4006
 local SEQ_ITEM_LEVELS = 4005
 local SEQ_PET_RACES   = 5000
 local SEQ_PET_LIST    = 5001
@@ -550,7 +551,7 @@ end
 -- ITEM picker -----------------------------------------------------------------
 function GmNpc:itemMenuShow(player)
   self:ensureData(); self:sessReset(player)
-  local m = self:NPC_buildSelectionText('给予道具', { '按名称搜索', '按分类浏览', '按等级浏览' })
+  local m = self:NPC_buildSelectionText('给予道具', { '按名称搜索', '按分类浏览' })
   NLG.ShowWindowTalked(player, self.npc, CONST.窗口_选择框, CONST.BUTTON_关闭, SEQ_ITEM_MENU, m)
 end
 
@@ -574,6 +575,12 @@ end
 function GmNpc:itemCatsShow(player)
   self:renderPage(player, SEQ_ITEM_CATS, '选择分类', self.cats,
     function(c) return c.name .. ' (' .. #c.items .. ')' end)
+end
+
+function GmNpc:itemCatLevelShow(player)
+  local sess = self.sess[player]; if not sess or not sess.catLevels then return end
+  self:renderPage(player, SEQ_ITEM_CATLEVEL, '选择等级', sess.catLevels,
+    function(gr) return 'Lv' .. gr.lv .. ' (' .. #gr.items .. ')' end)
 end
 
 function GmNpc:itemListShow(player)
@@ -977,8 +984,7 @@ function GmNpc:onPickerWindow(npc, player, seq, select, data)
     if select == 0 then
       local row = tonumber(data)
       if row == 1 then self:itemSearchPrompt(player)
-      elseif row == 2 then self:itemCatsShow(player)
-      elseif row == 3 then self:itemLevelsShow(player) end
+      elseif row == 2 then self:itemCatsShow(player) end
     end
     return true
   elseif seq == SEQ_ITEM_SEARCH then
@@ -989,7 +995,28 @@ function GmNpc:onPickerWindow(npc, player, seq, select, data)
       local row = tonumber(data)
       if row and s then
         local cat = self.cats[(s.page - 1) * PAGE_SIZE + row]
-        if cat then s.items = cat.items; s.page = 1; self:itemListShow(player) end
+        if cat then
+          local lvmap, lvorder = {}, {}
+          for _, it in ipairs(cat.items) do
+            if it.real then
+              local grp = lvmap[it.lv or 0]
+              if not grp then grp = { lv = it.lv or 0, items = {} }; lvmap[it.lv or 0] = grp; lvorder[#lvorder + 1] = grp end
+              grp.items[#grp.items + 1] = it
+            end
+          end
+          table.sort(lvorder, function(a, b) return a.lv < b.lv end)
+          s.catLevels = lvorder; s.page = 1
+          if #lvorder == 0 then msg(player, '该分类没有可用道具') else self:itemCatLevelShow(player) end
+        end
+      end
+    end
+    return true
+  elseif seq == SEQ_ITEM_CATLEVEL then
+    if not self:pageNav(player, select, function() self:itemCatLevelShow(player) end) then
+      local row = tonumber(data)
+      if row and s and s.catLevels then
+        local grp = s.catLevels[(s.page - 1) * PAGE_SIZE + row]
+        if grp then s.items = grp.items; s.page = 1; self:itemListShow(player) end
       end
     end
     return true
