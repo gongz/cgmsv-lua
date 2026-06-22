@@ -447,6 +447,22 @@ local QG_ARMOR = {
 local QG_ACC = { [17] = 1, [18] = 1 }  -- necklace / ring
 
 -- race code -> display name (server-owner mapping, positional 0-9)
+-- strip trailing level/variant markers (LVn, -roman, EX, digits, separators)
+-- to get the skill-family name: keep the leading run of GBK hanzi, stop at the
+-- first ASCII char or GBK symbol/punctuation/roman-numeral lead byte (0xA1-0xA9)
+local function techBaseName(nm)
+  local out, i, n = {}, 1, #nm
+  while i <= n do
+    local b = string.byte(nm, i)
+    if b < 0x80 then break
+    elseif b >= 0xA1 and b <= 0xA9 then break
+    else out[#out + 1] = string.sub(nm, i, i + 1); i = i + 2 end
+  end
+  local base = table.concat(out)
+  if base == '' then base = nm end
+  return base
+end
+
 -- item type (itemset col15) -> readable name (for browse-by-type)
 local TYPE_NAMES = {
   [0]='½£', [1]='¸«', [2]='Ç¹', [3]='ÕÈ', [4]='¹­', [5]='Ð¡µ¶', [6]='»ØÁ¦ïÚ',
@@ -541,11 +557,10 @@ function GmNpc:ensureData()
     local nm, tid = t[1], tonumber(t[4])
     if nm and nm ~= '' and tid then
       self.techName[tid] = nm
-      local base, lv = string.match(nm, '^(.-)%s*LV(%d+)$')
-      if not base then base = nm; lv = 0 else lv = tonumber(lv) end
+      local base = techBaseName(nm)
       local gr = tgroups[base]
       if not gr then gr = { base = base, variants = {} }; tgroups[base] = gr; torder[#torder + 1] = gr end
-      gr.variants[#gr.variants + 1] = { id = tid, lv = lv, name = nm }
+      gr.variants[#gr.variants + 1] = { id = tid, name = nm }
     end
   end)
   self.techBases = torder
