@@ -92,14 +92,6 @@ local commands = {
     if not (mt and fl and x and y) then return msg(p, '需要 mapType floor x y') end
     if Char.Warp(p, mt, fl, x, y) then msg(p, string.format('已传送 %d/%d (%d,%d)', mt, fl, x, y)) else msg(p, '传送失败') end
   end },
-  { label = '设置数据 SetData', hint = 'dataIndex value', run = function(p, a)
-    local d, v = tonumber(a[1]), tonumber(a[2]); if not (d and v) then return msg(p, '需要 dataIndex value') end
-    Char.SetData(p, d, v); Char.UpCharStatus(p); msg(p, string.format('SetData[%d]=%d', d, v))
-  end },
-  { label = '读取数据 GetData', hint = 'dataIndex', run = function(p, a)
-    local d = tonumber(a[1]); if not d then return msg(p, '需要 dataIndex') end
-    msg(p, string.format('GetData[%d]=%s', d, tostring(Char.GetData(p, d))))
-  end },
 
   { label = '自动战斗 AutoBattle', hint = '0/1 留空切换', run = function(p, a)
     local cur = tonumber(Char.GetData(p, CONST.对象_自动战斗开关)) or 0
@@ -134,7 +126,6 @@ local commands = {
   { label = '保存当前为传送点 SaveWarp', hint = '保存当前位置', run = function(p) end },
   { label = '传送到保存点 GoWarp', hint = '从已保存传送', run = function(p) end },
 
-  { label = '一键装备 QuickGear', hint = '选等级给整套装备', run = function(p) end },
 
   { label = '引擎GM命令 EngineCmds', hint = '内置命令参考', run = function(p) end },
 
@@ -164,92 +155,12 @@ local commands = {
     if not k then return msg(p, '需要账号CDK') end
     if ad and ad.addGm and ad:addGm(k) then msg(p, '已设为GM: ' .. k) else msg(p, '设置失败') end
   end },
-  { label = '取消GM RemoveGM', hint = '账号CDK', run = function(p, a)
-    local k = a[1]; local ad = getModule('admin')
-    if not k then return msg(p, '需要账号CDK') end
-    if ad and ad.removeGm and ad:removeGm(k) then msg(p, '已取消GM: ' .. k) else msg(p, '取消失败(内置GM不可移除)') end
-  end },
   { label = '重载模块 ReloadModule', hint = '模块名', run = function(p, a)
     if not a[1] then return msg(p, '需要模块名') end
     reloadModule(a[1]); msg(p, '已重载 ' .. a[1])
   end },
 
   -- ===== world / server (not tied to the talker) =====
-  { label = '全服公告 AnnounceAll', hint = '公告内容', run = function(p, a, raw)
-    local text = rest(a, 1); if text == '' then return msg(p, '需要公告内容') end
-    NLG.SystemMessage(-1, text); msg(p, '已全服公告')
-  end },
-  { label = '地图公告 AnnounceMap', hint = 'map floor 内容', run = function(p, a)
-    local m, f = tonumber(a[1]), tonumber(a[2]); local text = rest(a, 3)
-    if not (m and f) or text == '' then return msg(p, '需要 map floor 内容') end
-    NLG.SystemMessageToMap(m, f, text); msg(p, '已对地图公告')
-  end },
-  { label = '在线人数 OnlineCount', hint = '(无参数)', run = function(p)
-    msg(p, '在线人数: ' .. tostring(NLG.GetOnLinePlayer()))
-  end },
-  { label = '地图人数 MapPlayerCount', hint = 'map floor', run = function(p, a)
-    local m, f = tonumber(a[1]), tonumber(a[2]); if not (m and f) then return msg(p, '需要 map floor') end
-    msg(p, '地图人数: ' .. tostring(NLG.GetMapPlayerNum(m, f)))
-  end },
-  { label = '查找账号 FindUser', hint = '账号CDK', run = function(p, a)
-    if not a[1] then return msg(p, '需要账号CDK') end
-    msg(p, 'FindUser -> ' .. tostring(NLG.FindUser(a[1])))
-  end },
-  { label = '道具名查询 ItemName', hint = 'itemID', run = function(p, a)
-    local id = tonumber(a[1]); if not id then return msg(p, '需要 itemID') end
-    msg(p, id .. ' = ' .. tostring(Item.GetNameFromNumber(id)))
-  end },
-  { label = '地面掉金 DropGold', hint = 'map floor x y 金额', run = function(p, a)
-    local m, f, x, y, g = tonumber(a[1]), tonumber(a[2]), tonumber(a[3]), tonumber(a[4]), tonumber(a[5])
-    if not (m and f and x and y and g) then return msg(p, '需要 map floor x y 金额') end
-    Obj.AddGold(m, f, x, y, g); msg(p, '已在地面放置金币')
-  end },
-  { label = '创建传送点 AddWarp', hint = 'map floor x y toMap toFloor toX toY', run = function(p, a)
-    local v = {}
-    for i = 1, 8 do v[i] = tonumber(a[i]); if not v[i] then return msg(p, '需要 8 个数字参数') end end
-    Obj.AddWarp(v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8]); msg(p, '已创建传送点')
-  end },
-  { label = '设置可走 SetWalkable', hint = 'map floor x y able(0/1)', run = function(p, a)
-    local m, f, x, y, ab = tonumber(a[1]), tonumber(a[2]), tonumber(a[3]), tonumber(a[4]), tonumber(a[5])
-    if not (m and f and x and y and ab) then return msg(p, '需要 map floor x y able') end
-    Map.SetWalkable(m, f, x, y, ab); msg(p, '已设置可走属性')
-  end },
-  { label = '地图名 SetMapName', hint = 'map floor 名称', run = function(p, a)
-    local m, f = tonumber(a[1]), tonumber(a[2]); local nm = rest(a, 3)
-    if not (m and f) or nm == '' then return msg(p, '需要 map floor 名称') end
-    NLG.SetMapName(m, f, nm); msg(p, '已设置地图名')
-  end },
-  { label = '职业声望上限 JobFameLimit', hint = 'job [limit]', run = function(p, a)
-    local job, lim = tonumber(a[1]), tonumber(a[2])
-    if not job then return msg(p, '需要 job') end
-    if lim then Setup.SetJobFameLimit(job, lim); msg(p, '已设置声望上限')
-    else msg(p, '声望上限: ' .. tostring(Setup.GetJobFameLimit(job))) end
-  end },
-  { label = '随机数 Rand', hint = 'min max', run = function(p, a)
-    local lo, hi = tonumber(a[1]), tonumber(a[2]); if not (lo and hi) then return msg(p, '需要 min max') end
-    msg(p, 'Rand -> ' .. tostring(NLG.Rand(lo, hi)))
-  end },
-  { label = '游戏时间 GameTime', hint = '(无参数)', run = function(p)
-    msg(p, 'GameTime -> ' .. tostring(NLG.GetGameTime()))
-  end },
-  { label = '执行SQL SQLRun', hint = '完整SQL语句', run = function(p, a, raw)
-    if not raw or raw == '' then return msg(p, '需要 SQL 语句') end
-    SQL.Run(raw); msg(p, 'SQL 已执行')
-  end },
-  { label = '查询SQL SQLQuery', hint = '完整SELECT语句', run = function(p, a, raw)
-    if not raw or raw == '' then return msg(p, '需要 SQL 语句') end
-    msg(p, 'SQL结果: ' .. tostring(SQL.Query(raw)))
-  end },
-  { label = '服务器消息 ServerMsg', hint = 'msgId [新值]', run = function(p, a)
-    local id = tonumber(a[1]); local val = rest(a, 2)
-    if not id then return msg(p, '需要 msgId') end
-    if val ~= '' then Data.SetMessage(id, val); msg(p, '已设置消息') else msg(p, '消息: ' .. tostring(Data.GetMessage(id))) end
-  end },
-  { label = '删除角色 DeleteCharacter', hint = '账号CDK 槽位(0-?)', run = function(p, a)
-    local k, place = a[1], tonumber(a[2])
-    if not (k and place) then return msg(p, '需要 账号CDK 槽位') end
-    NLG.DeleteCharacter(k, place); msg(p, '已请求删除角色 ' .. k .. '/' .. place)
-  end },
 }
 
 -- ---- SeqNo scheme ----------------------------------------------------------
@@ -258,7 +169,7 @@ local commands = {
 --   3000 + index = input box for command #index
 -- ---- menu display order: frequently-used first; QuickGear/DelItem hidden ----
 local DISPLAY_PRIORITY = { 'GiveItem', 'Trash', 'SaveWarp', 'GoWarp', 'GetJob', 'AddSkill', 'PetSkill' }
-local DISPLAY_HIDE = { 'QuickGear', 'DelItem' }
+local DISPLAY_HIDE = { 'DelItem' }
 local displayOrder
 local function getDisplayOrder()
   if displayOrder then return displayOrder end
@@ -316,7 +227,6 @@ function GmNpc:showCommandInput(npc, player, index)
   if string.find(c.label, 'Trash', 1, true) then return self:trashStart(player) end
   if string.find(c.label, 'SaveWarp', 1, true) then return self:saveWarpStart(player) end
   if string.find(c.label, 'GoWarp', 1, true) then return self:goWarpStart(player) end
-  if string.find(c.label, 'QuickGear', 1, true) then return self:quickGearStart(player) end
   if string.find(c.label, 'EngineCmds', 1, true) then return self:engineCmdsStart(player) end
   NLG.ShowWindowTalked(player, npc, CONST.窗口_输入框, CONST.BUTTON_确定关闭, SEQ_IN_BASE + index,
     '\\n' .. c.label .. '\\n请输入: ' .. c.hint)
@@ -363,9 +273,6 @@ local SEQ_TRASH       = 9100
 local SEQ_WARP_NAME   = 9200
 local SEQ_WARP_LIST   = 9201
 local WARP_FILE       = 'gm_warp.txt'
-local SEQ_QG_JOB      = 9300
-local SEQ_QG_LEVEL    = 9301
-local SEQ_QG_ARMOR    = 9302
 local SEQ_ENGCMD      = 9400
 local SEQ_DELSKILL    = 9500
 local SEQ_DELPET_PET  = 9600
@@ -432,19 +339,6 @@ local ENGINE_CMDS = {
   { c = 'save',         d = 'save char' },
   { c = 'logclose',     d = 'close log' },
 }
--- weapon-class choices -> weapon item type (col15)
-local QG_JOBS = {
-  { name = '剑 Sword', w = 0 }, { name = '斧 Axe', w = 1 }, { name = '枪 Spear', w = 2 },
-  { name = '杖 Staff', w = 3 }, { name = '弓 Bow', w = 4 }, { name = '小刀 Knife', w = 5 },
-  { name = '回力镖 Boomerang', w = 6 },
-}
--- armor classes -> head/body/feet item types (col15); shield only for heavy
-local QG_ARMOR = {
-  { name = '重甲 Heavy', head = 8, body = 10, feet = 13, shield = 7 },
-  { name = '轻甲 Light', head = 9, body = 11, feet = 14 },
-  { name = '法袍 Magic', head = 9, body = 12, feet = 14 },
-}
-local QG_ACC = { [17] = 1, [18] = 1 }  -- necklace / ring
 
 -- race code -> display name (server-owner mapping, positional 0-9)
 -- strip trailing level/variant markers (LVn, -roman, EX, digits, separators)
@@ -963,60 +857,6 @@ function GmNpc:goWarpShow(player)
   self:renderPage(player, SEQ_WARP_LIST, '传送列表', self.warps, function(w) return w.name .. ' (' .. w.map .. ')' end)
 end
 
--- QUICK GEAR: pick a level -> give best real item of each equip slot <= level --
-function GmNpc:quickGearStart(player)
-  self:ensureData(); self:sessReset(player)
-  self:qgJobShow(player)
-end
-
-function GmNpc:qgJobShow(player)
-  self:renderPage(player, SEQ_QG_JOB, '选择武器', QG_JOBS, function(j) return j.name end)
-end
-
-function GmNpc:qgArmorShow(player)
-  self:renderPage(player, SEQ_QG_ARMOR, '选择防具类型', QG_ARMOR, function(a) return a.name end)
-end
-
-function GmNpc:qgLevelShow(player)
-  self:renderPage(player, SEQ_QG_LEVEL, '选择装备等级', self.itemLevels, function(gr) return 'Lv' .. gr.lv .. ' (' .. #gr.items .. ')' end)
-end
-
-function GmNpc:quickGearGive(player, L)
-  local sess = self.sess[player]
-  local a = sess and sess.qgA
-  if not a then return end
-  local want = {
-    { t = sess.qgW, label = '武器' },
-    { t = a.head, label = '头部' },
-    { t = a.body, label = '身体' },
-    { t = a.feet, label = '脚' },
-  }
-  if a.shield then want[#want + 1] = { t = a.shield, label = '盾' } end
-  local best, accBest = {}, nil
-  for _, it in ipairs(self.items) do
-    if it.real and it.lv and it.lv <= L and it.typ then
-      for i, wnt in ipairs(want) do
-        if it.typ == wnt.t and (not best[i] or it.lv > best[i].lv) then best[i] = it end
-      end
-      if QG_ACC[it.typ] and (not accBest or it.lv > accBest.lv) then accBest = it end
-    end
-  end
-  local n = 0
-  local function give(it, label)
-    if not it then return end
-    local idx = Char.GiveItem(player, it.id, 1, true)
-    if idx and idx >= 0 then
-      Item.SetData(idx, CONST.道具_已鉴定, 1)
-      Item.UpItem(player, Char.GetItemSlot(player, idx))
-    end
-    n = n + 1
-    msg(player, label .. ': ' .. it.name .. ' Lv' .. it.lv)
-  end
-  for i, wnt in ipairs(want) do give(best[i], wnt.label) end
-  give(accBest, '饰品')
-  msg(player, '已给予装备 x' .. n)
-end
-
 -- Engine GM command reference (read-only list) ------------------------------
 function GmNpc:engineCmdsStart(player)
   self:sessReset(player); self:engineCmdsShow(player)
@@ -1134,24 +974,6 @@ function GmNpc:onPickerWindow(npc, player, seq, select, data)
       end
     end
     return true
-  elseif seq == SEQ_QG_JOB then
-    if not self:pageNav(player, select, function() self:qgJobShow(player) end) then
-      local row = tonumber(data)
-      if row and s then
-        local j = QG_JOBS[(s.page - 1) * PAGE_SIZE + row]
-        if j then s.qgW = j.w; s.page = 1; self:qgArmorShow(player) end
-      end
-    end
-    return true
-  elseif seq == SEQ_QG_ARMOR then
-    if not self:pageNav(player, select, function() self:qgArmorShow(player) end) then
-      local row = tonumber(data)
-      if row and s then
-        local a = QG_ARMOR[(s.page - 1) * PAGE_SIZE + row]
-        if a then s.qgA = a; s.page = 1; self:qgLevelShow(player) end
-      end
-    end
-    return true
   elseif seq == SEQ_ENGCMD then
     if not self:pageNav(player, select, function() self:engineCmdsShow(player) end) then
       local row = tonumber(data)
@@ -1185,15 +1007,6 @@ function GmNpc:onPickerWindow(npc, player, seq, select, data)
       if row and s and s.dpSlots then
         local e = s.dpSlots[(s.page - 1) * PAGE_SIZE + row]
         if e then Pet.DelSkill(s.dpPet, e.slot); NLG.UpChar(player); msg(player, '已删除宠物技能: ' .. e.name); self:delPetSlotShow(player) end
-      end
-    end
-    return true
-  elseif seq == SEQ_QG_LEVEL then
-    if not self:pageNav(player, select, function() self:qgLevelShow(player) end) then
-      local row = tonumber(data)
-      if row and s then
-        local grp = self.itemLevels[(s.page - 1) * PAGE_SIZE + row]
-        if grp then self:quickGearGive(player, grp.lv) end
       end
     end
     return true
