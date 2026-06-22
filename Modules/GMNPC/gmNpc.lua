@@ -62,10 +62,6 @@ local commands = {
     local amt = tonumber(a[2]) or 1
     Char.GiveItem(p, id, amt, true); msg(p, string.format('已给予 %s x%d', nm, amt))
   end },
-  { label = '删除道具 DelItem', hint = 'itemID [数量]', run = function(p, a)
-    local id = tonumber(a[1]); if not id then return msg(p, '需要 itemID') end
-    Char.DelItem(p, id, tonumber(a[2]) or 1, true); msg(p, '已删除道具 ' .. id)
-  end },
   { label = '加金币 AddGold', hint = '数量(可负)', run = function(p, a)
     local n = tonumber(a[1]); if not n then return msg(p, '需要数量') end
     Char.AddGold(p, n); msg(p, '金币 ' .. (n >= 0 and '+' or '') .. n)
@@ -169,7 +165,7 @@ local commands = {
 --   3000 + index = input box for command #index
 -- ---- menu display order: frequently-used first; QuickGear/DelItem hidden ----
 local DISPLAY_PRIORITY = { 'GiveItem', 'Trash', 'SaveWarp', 'GoWarp', 'GetJob', 'AddSkill', 'PetSkill' }
-local DISPLAY_HIDE = { 'DelItem' }
+local DISPLAY_HIDE = {}
 local displayOrder
 local function getDisplayOrder()
   if displayOrder then return displayOrder end
