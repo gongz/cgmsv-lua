@@ -138,6 +138,26 @@ local commands = {
 
   { label = '引擎GM命令 EngineCmds', hint = '内置命令参考', run = function(p) end },
 
+  { label = '删除技能(人) DelSkill', hint = '从列表选择', run = function(p) end },
+  { label = '删除宠物技能 DelPetSkill', hint = '选宠物-选技能', run = function(p) end },
+  { label = '技能栏拉满(人) MaxSkillSlot', hint = '(无参数)', run = function(p)
+    Char.SetData(p, CONST.对象_技能栏, 15); Char.UpCharStatus(p)
+    msg(p, '技能栏 -> 15')
+  end },
+  { label = '宠物技能栏拉满 MaxPetSkillSlot', hint = '(所有宠物)', run = function(p)
+    local n = 0
+    for slot = 0, 4 do
+      local pi = Char.GetPet(p, slot)
+      if pi and pi >= 0 then Char.SetData(pi, CONST.宠物_技能栏, 10); n = n + 1 end
+    end
+    msg(p, string.format('已拉满%d只宠物技能栏', n))
+  end },
+  { label = '双倍经验时间 FeverTime', hint = '小时(默认6最大6)', run = function(p, a)
+    local h = tonumber(a[1]) or 6; if h > 6 then h = 6 end; if h < 0 then h = 0 end
+    Char.SetData(p, CONST.对象_卡时, h * 3600)
+    msg(p, string.format('双倍经验时间 -> %d小时', h))
+  end },
+
   -- ===== GM administration =====
   { label = '设为GM AddGM', hint = '账号CDK', run = function(p, a)
     local k = a[1]; local ad = getModule('admin')
@@ -289,6 +309,8 @@ function GmNpc:showCommandInput(npc, player, index)
   if string.find(c.label, 'GivePet', 1, true) then return self:petMenuShow(player) end
   if string.find(c.label, 'AddSkill', 1, true) then return self:skillMenuShow(player) end
   if string.find(c.label, 'GetJob', 1, true) then return self:jobMenuShow(player) end
+  if string.find(c.label, 'DelPetSkill', 1, true) then return self:delPetSkillStart(player) end
+  if string.find(c.label, 'DelSkill', 1, true) then return self:delSkillStart(player) end
   if string.find(c.label, 'PetSkill', 1, true) then return self:petSkillStart(player) end
   if string.find(c.label, 'Step', 1, true) then return self:stepStart(player) end
   if string.find(c.label, 'Trash', 1, true) then return self:trashStart(player) end
@@ -345,6 +367,9 @@ local SEQ_QG_JOB      = 9300
 local SEQ_QG_LEVEL    = 9301
 local SEQ_QG_ARMOR    = 9302
 local SEQ_ENGCMD      = 9400
+local SEQ_DELSKILL    = 9500
+local SEQ_DELPET_PET  = 9600
+local SEQ_DELPET_SLOT = 9601
 -- Engine built-in GM commands (from cgmsv.exe). Invoked via chat as [nr <cmd> <args>].
 -- Reference only; descriptions/args are best-guess from RE and may need adjustment.
 local ENGINE_CMDS = {
@@ -492,10 +517,10 @@ function GmNpc:ensureData()
   self.raceList = {}
   for rc = 0, 9 do if races[rc] then self.raceList[#self.raceList + 1] = races[rc] end end
   for rc, grp in pairs(races) do if rc < 0 or rc > 9 then self.raceList[#self.raceList + 1] = grp end end
-  self.skills = {}
+  self.skills, self.skillName = {}, {}
   each('data/skill.txt', function(t)
     local nm, sid = t[1], tonumber(t[2])
-    if nm and nm ~= '' and sid then self.skills[#self.skills + 1] = { id = sid, name = nm } end
+    if nm and nm ~= '' and sid then self.skills[#self.skills + 1] = { id = sid, name = nm }; self.skillName[sid] = nm end
   end)
   self.jobs = {}
   each('data/jobs.txt', function(t)
@@ -978,6 +1003,63 @@ function GmNpc:engineCmdsShow(player)
   self:renderPage(player, SEQ_ENGCMD, '引擎GM命令 [nr ...]', ENGINE_CMDS, function(e) return e.c .. ' - ' .. e.d end)
 end
 
+-- DEL human skill: list current skills -> pick -> Char.DelSkill -------------
+function GmNpc:delSkillStart(player)
+  self:ensureData(); self:sessReset(player)
+  local list = {}
+  for slot = 0, 14 do
+    local sid = Char.GetSkillID(player, slot)
+    if sid and sid >= 0 then
+      list[#list + 1] = { id = sid, name = (self.skillName and self.skillName[sid]) or ('#' .. sid) }
+    end
+  end
+  if #list == 0 then return msg(player, '没有可删除的技能') end
+  self.sess[player].delSkills = list
+  self:delSkillShow(player)
+end
+
+function GmNpc:delSkillShow(player)
+  local sess = self.sess[player]; if not sess or not sess.delSkills then return end
+  self:renderPage(player, SEQ_DELSKILL, '删除技能', sess.delSkills, function(sk) return sk.name end)
+end
+
+-- DEL pet skill: pick pet -> pick slot -> Pet.DelSkill ----------------------
+function GmNpc:delPetSkillStart(player)
+  self:ensureData(); self:sessReset(player)
+  local list = {}
+  for slot = 0, 4 do
+    local pi = Char.GetPet(player, slot)
+    if pi and pi >= 0 then
+      local nm = Char.GetData(pi, CONST.对象_原名)
+      if not nm or nm == '' then nm = 'pet' .. slot end
+      list[#list + 1] = { petIndex = pi, name = nm }
+    end
+  end
+  if #list == 0 then return msg(player, '没有宠物') end
+  self.sess[player].dpPets = list
+  self:delPetPetShow(player)
+end
+
+function GmNpc:delPetPetShow(player)
+  local sess = self.sess[player]; if not sess or not sess.dpPets then return end
+  self:renderPage(player, SEQ_DELPET_PET, '选择宠物', sess.dpPets, function(e) return e.name end)
+end
+
+function GmNpc:delPetSlotShow(player)
+  local sess = self.sess[player]; if not sess or not sess.dpPet then return end
+  local pi = sess.dpPet
+  local list = {}
+  for sl = 0, 9 do
+    local cur = Pet.GetSkill(pi, sl)
+    if cur and cur >= 0 then
+      list[#list + 1] = { slot = sl, name = (self.techName and self.techName[cur]) or ('#' .. cur) }
+    end
+  end
+  if #list == 0 then return msg(player, '该宠物没有技能') end
+  sess.dpSlots = list
+  self:renderPage(player, SEQ_DELPET_SLOT, '删除宠物技能', sess.dpSlots, function(e) return e.slot .. ': ' .. e.name end)
+end
+
 function GmNpc:onPickerWindow(npc, player, seq, select, data)
   local s = self.sess and self.sess[player]
   if seq == SEQ_ITEM_MENU then
@@ -1053,6 +1135,33 @@ function GmNpc:onPickerWindow(npc, player, seq, select, data)
       if row and s then
         local e = ENGINE_CMDS[(s.page - 1) * PAGE_SIZE + row]
         if e then msg(player, '[nr ' .. e.c .. '] ' .. e.d) end
+      end
+    end
+    return true
+  elseif seq == SEQ_DELSKILL then
+    if not self:pageNav(player, select, function() self:delSkillShow(player) end) then
+      local row = tonumber(data)
+      if row and s and s.delSkills then
+        local sk = s.delSkills[(s.page - 1) * PAGE_SIZE + row]
+        if sk then Char.DelSkill(player, sk.id, 1); NLG.UpChar(player); msg(player, '已删除技能: ' .. sk.name); self:delSkillStart(player) end
+      end
+    end
+    return true
+  elseif seq == SEQ_DELPET_PET then
+    if not self:pageNav(player, select, function() self:delPetPetShow(player) end) then
+      local row = tonumber(data)
+      if row and s and s.dpPets then
+        local e = s.dpPets[(s.page - 1) * PAGE_SIZE + row]
+        if e then s.dpPet = e.petIndex; s.page = 1; self:delPetSlotShow(player) end
+      end
+    end
+    return true
+  elseif seq == SEQ_DELPET_SLOT then
+    if not self:pageNav(player, select, function() self:delPetSlotShow(player) end) then
+      local row = tonumber(data)
+      if row and s and s.dpSlots then
+        local e = s.dpSlots[(s.page - 1) * PAGE_SIZE + row]
+        if e then Pet.DelSkill(s.dpPet, e.slot); NLG.UpChar(player); msg(player, '已删除宠物技能: ' .. e.name); self:delPetSlotShow(player) end
       end
     end
     return true
