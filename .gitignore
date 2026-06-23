@@ -12,5 +12,3 @@ data/cgmsv.exe
 .DS_Store
 **/.DS_Store
 
-# generated CG->Godot export (run godot-slg/export_cg_data.py)
-godot-slg/data/*.json
